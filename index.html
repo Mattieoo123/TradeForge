@@ -91,15 +91,15 @@
     <div class="head"><h2>Trade Inputs</h2></div>
     <div class="body">
       <div class="field"><label>Instrument <span class="hint">Sets leverage automatically</span></label><div class="input"><select id="instrument">
-        <option value="PAXG">PAXG/USD · Gold · 5:1</option><option value="XYZ100">XYZ100/USD · Nasdaq 100 · 2:1</option><option value="UKOIL">UKOIL/USD · Brent Oil · 5:1</option><option value="SP500">SP500/USD · S&amp;P 500 · 2:1</option><option value="SILVER">SILVER/USD · Silver · 5:1</option><option value="HOOD">HOOD/USD · Robinhood · 2:1</option><option value="HYPE">HYPE/USD · Hyperliquid · 2:1</option><option value="USOIL">USOIL/USD · WTI Oil · 5:1</option><option value="BTC">BTC/USD · Bitcoin · 5:1</option><option value="ETH">ETH/USD · Ethereum · 5:1</option><option value="NVDA">NVDA/USD · Nvidia · 2:1</option><option value="CUSTOM5">Custom 5:1 instrument</option><option value="CUSTOM2">Custom 2:1 instrument</option>
+        <option value="PAXG">PAXG/USD · Gold · 5:1</option><option value="XYZ100">XYZ100/USD · Nasdaq 100 · 2:1</option><option value="UKOIL">UKOIL/USD · Brent Oil · 5:1</option><option value="SP500">SP500/USD · S&amp;P 500 · 2:1</option><option value="SILVER">SILVER/USD · Silver · 5:1</option><option value="HOOD">HOOD/USD · Robinhood · 2:1</option><option value="HYPE">HYPE/USD · Hyperliquid · 2:1</option><option value="CUSTOM5">Custom 5:1 instrument</option><option value="CUSTOM2">Custom 2:1 instrument</option>
       </select></div></div>
       <div class="field"><label>Total risk limit <span class="hint">YOU control this · saved locally</span></label><div class="input"><span class="prefix">$</span><input id="risk" type="number" inputmode="decimal" step=".01" value="800.00"></div></div>
-      <div class="field"><label>Expected daily funding resets <span class="hint">0 if closed before 22:00 UTC</span></label><div class="input"><input id="fundingDays" type="number" inputmode="numeric" step="1" min="0" value="0"></div></div>
-      <div class="field"><label>Free / available margin <span class="hint">Optional · from DXTrade</span></label><div class="input"><span class="prefix">$</span><input id="freeMargin" type="number" inputmode="decimal" step=".01" placeholder="Leave blank to estimate from equity"></div></div>
       <div class="field"><label>Entry price</label><div class="input"><span class="prefix">$</span><input id="entry" type="number" inputmode="decimal" step=".001" placeholder="110.46"></div></div>
       <div class="field"><label>Stop-loss price</label><div class="input"><span class="prefix">$</span><input id="stop" type="number" inputmode="decimal" step=".001" placeholder="113.03"></div></div>
       <div class="field"><label>Take-profit price <span class="hint">Optional</span></label><div class="input"><span class="prefix">$</span><input id="tp" type="number" inputmode="decimal" step=".001" placeholder="107.00"></div></div>
       <div class="field"><label>Current / trailed stop <span class="hint">Optional, after entry</span></label><div class="input"><span class="prefix">$</span><input id="trailStop" type="number" inputmode="decimal" step=".001" placeholder="109.75"></div></div>
+      <div class="field"><label>Expected daily funding resets <span class="hint">0 if closed before 22:00 UTC</span></label><div class="input"><input id="fundingDays" type="number" inputmode="numeric" step="1" min="0" value="0"></div></div>
+      <div class="field"><label>Margin already in use <span class="hint">Optional · $0 if no other positions are open</span></label><div class="input"><span class="prefix">$</span><input id="usedMargin" type="number" inputmode="decimal" step=".01" min="0" value="0"></div></div>
       <div class="buttons"><button id="saveRisk" class="primary">Save Default Risk</button><button id="clearTrade">Clear Trade</button></div>
       <div id="saveMsg" class="saved"></div>
       <div class="notice">Commission: <strong>0.04% per side</strong>. Funding: <strong>0.033% of notional per daily reset</strong>. Your risk input is never changed automatically. Quantity is rounded down to the hundredth so estimated stop loss + commissions + selected funding resets do not exceed your chosen risk.</div>
@@ -238,7 +238,7 @@
 <script>
 (() => {
 const RATE=.0004, FUNDING_RATE=.00033, $=id=>document.getElementById(id);
-const LEVERAGE={PAXG:5,XYZ100:2,UKOIL:5,SP500:2,SILVER:5,HOOD:2,HYPE:2,USOIL:5,BTC:5,ETH:5,NVDA:2,CUSTOM5:5,CUSTOM2:2};
+const LEVERAGE={PAXG:5,XYZ100:2,UKOIL:5,SP500:2,SILVER:5,HOOD:2,HYPE:2,CUSTOM5:5,CUSTOM2:2};
 const money=v=>Number.isFinite(v)?v.toLocaleString('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2}):'—';
 const num=(v,d=2)=>Number.isFinite(v)?v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}):'—';
 const floor2=v=>Math.floor((v+Number.EPSILON)*100)/100;
@@ -262,7 +262,7 @@ function calcPlan(){
  // Funding is estimated from entry notional for each selected daily reset. Including it here keeps estimated all-in stop risk <= the user-selected risk.
  const per=dist+entry*RATE+stop*RATE+(entry*FUNDING_RATE*days), riskQty=floor2(risk/per);
  if(!(riskQty>0)){clearPlanUI();err('The risk amount is too small for this setup.');return}
- const free=val('freeMargin'),eq=equityBasis(),marginAvailable=(free>0?free:(eq>0?eq:NaN)),maxQtyByMargin=Number.isFinite(marginAvailable)?floor2((marginAvailable*lev)/entry):Infinity;
+ const usedMargin=Math.max(0,val('usedMargin')||0),eq=equityBasis(),marginAvailable=eq>0?Math.max(0,eq-usedMargin):NaN,maxQtyByMargin=Number.isFinite(marginAvailable)?floor2((marginAvailable*lev)/entry):Infinity;
  const qty=Math.min(riskQty,maxQtyByMargin);
  if(!(qty>0)){clearPlanUI();err('Available margin is too small for this setup.');return}
  const priceRisk=dist*qty,entryFee=entry*qty*RATE,stopExit=stop*qty*RATE,fees=entryFee+stopExit,funding=entry*qty*FUNDING_RATE*days,total=priceRisk+fees+funding,notional=entry*qty,margin=notional/lev,unused=Math.max(0,risk-total);
@@ -272,15 +272,15 @@ function calcPlan(){
  $('qty').textContent=num(qty);$('totalStopLoss').textContent=money(total);$('totalStopLoss').className='value bad';$('breakeven').textContent=num(breakeven,3);
  $('priceRisk').textContent=money(priceRisk);$('entryFee').textContent=money(entryFee);$('stopExitFee').textContent=money(stopExit);$('stopFees').textContent=money(fees);$('feePct').textContent=num((fees+funding)/risk*100,2)+'%';$('unused').textContent=money(unused);
  $('instrumentLeverage').textContent=lev+':1';$('planNotional').textContent=money(notional);$('planMargin').textContent=money(margin);$('planFunding').textContent=money(funding)+(days?` (${days} reset${days===1?'':'s'})`:'');
- $('marginCapacity').textContent=Number.isFinite(marginAvailable)?`${money(marginAvailable)} available`:'Enter equity or free margin';
+ $('marginCapacity').textContent=Number.isFinite(marginAvailable)?`${money(marginAvailable)} available`:'Enter current equity';
  if(plan.marginLimited){$('marginWarning').textContent=`MARGIN-LIMITED: your chosen risk would require ${num(riskQty)} units, but available margin at ${lev}:1 supports about ${num(maxQtyByMargin)}. TradeForge reduced quantity only because the larger order cannot be opened with the entered/estimated margin. Your risk setting was not changed.`;$('marginWarning').style.display='block'}
  if(Number.isFinite(tp)&&tp>0){const valid=(dir==='LONG'&&tp>entry)||(dir==='SHORT'&&tp<entry);if(valid){const gross=(dir==='LONG'?(tp-entry):(entry-tp))*qty,tpExit=tp*qty*RATE,tpFees=entryFee+tpExit,net=gross-tpFees-funding,r=net/total;Object.assign(plan,{tpGross:gross,tpExit,tpFees,tpNet:net,tpR:r});$('tpGross').textContent=money(gross);$('tpExitFee').textContent=money(tpExit);$('tpFees').textContent=money(tpFees+funding);$('tpNet').textContent=money(net);$('tpR').textContent=num(r,2)+'R';$('netTakeProfit').textContent=money(net)}else ['tpGross','tpExitFee','tpFees','tpNet','tpR','netTakeProfit'].forEach(id=>$(id).textContent='Invalid target')}else ['tpGross','tpExitFee','tpFees','tpNet','tpR','netTakeProfit'].forEach(id=>$(id).textContent='—');
  if(Number.isFinite(trailStop)&&trailStop>0){const trailGross=(dir==='LONG'?(trailStop-entry):(entry-trailStop))*qty,trailExit=trailStop*qty*RATE,trailNet=trailGross-entryFee-trailExit-funding;$('stopLossBoxName').textContent=trailNet>0?'Profit Locked at Trailed Stop':'Trailed Stop Loss';$('stopLossBoxSub').textContent=`If filled at ${num(trailStop,3)}, after commissions/funding`;$('totalStopLoss').textContent=money(trailNet);$('totalStopLoss').className='value '+(trailNet>0?'good':trailNet<0?'bad':'')}else{$('stopLossBoxName').textContent='Total Stop Loss';$('stopLossBoxSub').textContent='Original stop, including commissions/funding';$('totalStopLoss').textContent=money(total);$('totalStopLoss').className='value bad'}
  updateDashboard();
 }
-['instrument','risk','entry','stop','tp','trailStop','fundingDays','freeMargin'].forEach(id=>$(id).addEventListener('input',calcPlan));
+['instrument','risk','entry','stop','tp','trailStop','fundingDays','usedMargin'].forEach(id=>$(id).addEventListener('input',calcPlan));
 $('saveRisk').onclick=()=>{const r=val('risk');if(r>0){localStorage.setItem('tradeifyDefaultRisk',r.toFixed(2));$('saveMsg').textContent=`Default risk saved at ${money(r)}.`;setTimeout(()=>$('saveMsg').textContent='',2200)}};
-$('clearTrade').onclick=()=>{$('entry').value='';$('stop').value='';$('tp').value='';$('trailStop').value='';$('fundingDays').value='0';$('freeMargin').value='';clearPlanUI();$('entry').focus()};
+$('clearTrade').onclick=()=>{$('entry').value='';$('stop').value='';$('tp').value='';$('trailStop').value='';$('fundingDays').value='0';$('usedMargin').value='0';clearPlanUI();$('entry').focus()};
 $('copyQty').onclick=async()=>{if(!plan.qty)return;try{await navigator.clipboard.writeText(plan.qty.toFixed(2));$('copyQty').textContent='Copied';setTimeout(()=>$('copyQty').textContent='Copy Position Size',1200)}catch{}};
 function calcReview(){const d=$('reviewDir').value,e=val('reviewEntry'),x=val('reviewExit'),q=val('reviewQty'),r=val('reviewRisk');if(!(e>0&&x>0&&q>0)){['reviewResult','reviewGross','reviewFees','reviewNet','reviewR','reviewNotional','reviewEntryFee','reviewExitFee','reviewMove','reviewPerCFD'].forEach(id=>$(id).textContent='—');return}const move=d==='LONG'?x-e:e-x,gross=move*q,ef=e*q*RATE,xf=x*q*RATE,fees=ef+xf,net=gross-fees,rm=r>0?net/r:NaN;$('reviewResult').textContent=net>0?'WIN':net<0?'LOSS':'BREAK-EVEN';$('reviewResult').className='value '+(net>0?'good':net<0?'bad':'');$('reviewGross').textContent=money(gross);$('reviewFees').textContent=money(fees);$('reviewNet').textContent=money(net);$('reviewNet').className='value '+(net>0?'good':net<0?'bad':'');$('reviewR').textContent=Number.isFinite(rm)?num(rm,2)+'R':'—';$('reviewNotional').textContent=money(e*q);$('reviewEntryFee').textContent=money(ef);$('reviewExitFee').textContent=money(xf);$('reviewMove').textContent=money(move);$('reviewPerCFD').textContent=money(net/q)}
 ['reviewDir','reviewEntry','reviewExit','reviewQty','reviewRisk'].forEach(id=>$(id).addEventListener('input',calcReview));
