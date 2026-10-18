@@ -7,7 +7,9 @@
   <meta name="description" content="TradeForge risk, take-profit, commissions, and prop evaluation calculator." />
   
   
-  <title>TradeForge v6</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <title>TradeForge v7</title>
   <style>
     :root {
       --bg:#0b0f14; --panel:#141a22; --panel2:#1b232e; --input:#0f151c;
@@ -70,17 +72,51 @@
     .muted{color:var(--muted)}
     @media(max-width:1100px){.summary{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:900px){.grid,.two{grid-template-columns:1fr}.dashboard{grid-template-columns:repeat(2,minmax(0,1fr))}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media(max-width:470px){.wrap{width:min(100% - 16px,1280px);padding-top:16px}header{display:block}.install{margin-top:12px}.summary,.dashboard{grid-template-columns:1fr 1fr}.buttons{grid-template-columns:1fr}.body{padding:15px}.stat{min-height:88px;padding:11px}}
+
+    .nav-count{display:inline-grid;place-items:center;min-width:21px;height:21px;border-radius:20px;background:var(--panel2);border:1px solid var(--border);font-size:.7rem;padding:0 5px;margin-left:3px}
+    .exec-list{display:grid;gap:8px;margin:12px 0}
+    .exec-list-button{display:block;width:100%;text-align:left;min-height:68px;padding:11px 13px;border:1px solid var(--border);background:var(--panel2)}
+    .exec-list-button.active{border-color:var(--blue);box-shadow:inset 3px 0 var(--blue)}
+    .exec-list-button .small{display:block;margin-top:4px;font-weight:500}
+    .exec-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .exec-actions .wide{grid-column:1/-1}
+    .exec-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .exec-panel{margin-top:15px}
+    .exec-subtext{color:var(--muted);font-size:.8rem;line-height:1.5}
+    .risk-meter{height:9px;background:var(--input);border-radius:10px;overflow:hidden;margin-top:10px}
+    .risk-meter>div{height:100%;background:var(--green);max-width:100%;transition:width .15s}
+    .exec-note{font-size:.81rem;line-height:1.55}
+    .excaution{background:rgba(255,186,98,.08);border:1px solid rgba(255,186,98,.36);color:var(--orange);padding:11px 13px;border-radius:11px;margin-top:13px;font-size:.8rem;line-height:1.5;display:none}
+    .exec-field-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+    .exec-primary{margin-top:8px}
+    .small-label{font-size:.74rem;color:var(--muted);font-weight:500}
+    .exec-left{display:grid;gap:16px;align-content:start}
+    #execution .summary{grid-template-columns:repeat(3,minmax(0,1fr))}
+    #execution .summary .value{font-size:clamp(1.08rem,2.2vw,1.5rem)}
+    .exec-jump{display:none}
+    @media(max-width:900px){
+      #execution .exec-grid{display:flex;flex-direction:column}
+      #execution .exec-left{display:contents}
+      #execListCard{order:0;width:100%}
+      #execSummaryCard{order:1;width:100%}
+      #execEditorCard{order:2;width:100%}
+      #execution .summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .exec-jump{display:block}
+    }
+    .exec-foot{margin-top:10px;color:var(--muted);font-size:.77rem;line-height:1.5}
+    @media(max-width:560px){.exec-field-cols{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
 <main class="wrap">
 <header>
-  <div><h1>TradeForge</h1><p class="sub">Risk sizing, commissions, take-profit planning, actual-exit review, and evaluation tracking.</p></div>
+  <div><h1>TradeForge</h1><p class="sub">Risk sizing, multiple open positions, real-fill execution, trade review, and evaluation tracking.</p></div>
   <button id="installBtn" class="install primary">Install App</button>
 </header>
 
 <nav class="tabs">
   <button class="tab active" data-page="planner">Trade Planner</button>
+  <button class="tab" data-page="execution">Trade Execution <span id="openCount" class="nav-count">0</span></button>
   <button class="tab" data-page="review">Trade Review</button>
   <button class="tab" data-page="dashboard">Evaluation Dashboard</button>
 </nav>
@@ -118,6 +154,7 @@
         <div class="stat"><div class="name">Break-even Price</div><div id="breakeven" class="value">—</div><div class="small">After entry and exit fees</div></div>
       </div>
       <button id="copyQty" class="full">Copy Position Size</button>
+      <button id="sendToExecution" class="full primary">Send Planned Trade to Execution →</button>
 
       <h3 class="section">Risk Breakdown</h3>
       <div class="rows">
@@ -145,12 +182,127 @@
       <div class="rows">
         <div class="row"><div class="l">Gross profit</div><div id="tpGross" class="a">—</div></div>
         <div class="row"><div class="l">Exit commission at target</div><div id="tpExitFee" class="a">—</div></div>
-        <div class="row"><div class="l">Total commissions</div><div id="tpFees" class="a">—</div></div>
+        <div class="row"><div class="l">Total commissions + funding</div><div id="tpFees" class="a">—</div></div>
         <div class="row"><div class="l">Net profit</div><div id="tpNet" class="a good">—</div></div>
         <div class="row"><div class="l">Net risk-to-reward</div><div id="tpR" class="a">—</div></div>
       </div>
 
       <div class="notice">Theoretical values assume fills occur exactly at the entered prices. Actual fills may differ.</div>
+    </div>
+  </div>
+</div>
+</section>
+
+
+<section id="execution" class="page">
+<div class="grid exec-grid">
+  <div class="exec-left">
+  <div class="card" id="execListCard">
+    <div class="head"><div class="exec-head"><h2>Open Positions</h2><strong id="execCountBadge" class="muted">0 open</strong></div></div>
+    <div class="body">
+      <div class="buttons">
+        <button id="execNew" class="primary">+ New Position</button>
+        <button id="execImport">+ From Planner</button>
+      </div>
+      <div class="buttons" style="margin-top:8px">
+        <button id="execExport">Export Backup</button>
+        <button id="execRestore">Import Backup</button>
+      </div>
+      <input type="file" id="execRestoreFile" accept=".json,application/json" hidden>
+      <div id="execBackupMsg" class="small-label" style="margin-top:7px" role="status"></div>
+      <div id="execList" class="exec-list"></div>
+      <div id="execNoPositions" class="notice">No saved open positions yet. Start a position here, or send one over from Trade Planner.</div>
+      <div class="exec-foot">Open positions are saved <strong>on this browser/device only</strong>. They do not sync with DXTrade or another device. Changing browser data may erase them.</div>
+    </div>
+  </div>
+  <div class="card" id="execEditorCard">
+    <div id="execEditor" class="body" style="display:none">
+      <div class="exec-head"><h2>Edit Selected Position</h2><span id="execSavedState" class="small-label">Saved locally</span></div>
+      <button id="execJumpToResults" class="full exec-jump">↑ View Live Calculations</button>
+      <p class="exec-subtext">Actual filled quantity stays fixed as you edit the entry price. It changes only if you explicitly edit Filled Quantity (e.g., partial fills).</p>
+      <div class="field"><label for="exLabel">Position label <span class="hint">Optional</span></label><div class="input"><input id="exLabel" type="text" placeholder="PAXG buy stop #1" maxlength="70"></div></div>
+      <div class="field"><label for="exAccount">Account label <span class="hint">Keep evaluations separate</span></label><div class="input"><input id="exAccount" type="text" placeholder="50K Evaluation" maxlength="70"></div></div>
+      <div class="exec-field-cols">
+        <div class="field"><label for="exInstrument">Instrument</label><div class="input"><select id="exInstrument">
+        <option value="PAXG">PAXG · 5:1</option><option value="XYZ100">XYZ100 · 2:1</option><option value="UKOIL">UKOIL · 5:1</option><option value="SP500">SP500 · 2:1</option><option value="SILVER">SILVER · 5:1</option><option value="HOOD">HOOD · 2:1</option><option value="HYPE">HYPE · 2:1</option><option value="CUSTOM5">Custom · 5:1</option><option value="CUSTOM2">Custom · 2:1</option>
+        </select></div></div>
+        <div class="field"><label for="exDir">Direction</label><div class="input"><select id="exDir"><option value="LONG">Long / Buy</option><option value="SHORT">Short / Sell</option></select></div></div>
+      </div>
+      <div class="exec-field-cols">
+        <div class="field"><label for="exRisk">Original risk limit <span class="hint">Reference only</span></label><div class="input"><span class="prefix">$</span><input id="exRisk" type="number" inputmode="decimal" min="0" step=".01"></div></div>
+        <div class="field"><label for="exPlannedEntry">Planned entry <span class="hint">For slippage</span></label><div class="input"><span class="prefix">$</span><input id="exPlannedEntry" type="number" inputmode="decimal" min="0" step="any"></div></div>
+      </div>
+      <div class="exec-field-cols">
+        <div class="field"><label for="exEntry">Actual average entry <span class="hint">DXTrade fill price</span></label><div class="input"><span class="prefix">$</span><input id="exEntry" type="number" inputmode="decimal" min="0" step="any" placeholder="Enter actual fill"></div></div>
+        <div class="field"><label for="exQty">Filled quantity <span class="hint">Does not auto-resize</span></label><div class="input"><input id="exQty" type="number" inputmode="decimal" min="0" step="any" placeholder="Actual filled units"></div></div>
+      </div>
+      <div class="exec-field-cols">
+        <div class="field"><label for="exStop">Original stop-loss price</label><div class="input"><span class="prefix">$</span><input id="exStop" type="number" inputmode="decimal" min="0" step="any"></div></div>
+        <div class="field"><label for="exTP">Take-profit price <span class="hint">Optional</span></label><div class="input"><span class="prefix">$</span><input id="exTP" type="number" inputmode="decimal" min="0" step="any"></div></div>
+      </div>
+      <div class="exec-field-cols">
+        <div class="field"><label for="exTrail">Current / trailed stop <span class="hint">Overrides original SL</span></label><div class="input"><span class="prefix">$</span><input id="exTrail" type="number" inputmode="decimal" min="0" step="any"></div></div>
+        <div class="field"><label for="exMark">Current market price <span class="hint">Optional · mark/quote</span></label><div class="input"><span class="prefix">$</span><input id="exMark" type="number" inputmode="decimal" min="0" step="any"></div></div>
+      </div>
+      <h3 class="section">Costs &amp; Margin</h3>
+      <div class="exec-field-cols">
+        <div class="field"><label for="exFunding">Expected funding resets</label><div class="input"><input id="exFunding" type="number" inputmode="numeric" min="0" step="1" value="0"></div></div>
+        <div class="field"><label for="exUsed">Other margin in use <span class="hint">Excludes THIS position</span></label><div class="input"><span class="prefix">$</span><input id="exUsed" type="number" inputmode="decimal" min="0" step=".01" value="0"></div></div>
+      </div>
+      <div class="field"><label for="exEntryFeeActual">Actual entry commission <span class="hint">Optional override</span></label><div class="input"><span class="prefix">$</span><input id="exEntryFeeActual" type="number" inputmode="decimal" min="0" step="any" placeholder="Blank = estimated 0.04%"></div></div>
+      <div class="exec-actions">
+        <button id="execToReview" class="primary wide">Send Selected Position to Trade Review →</button>
+        <button id="execDuplicate">Duplicate</button>
+        <button id="execDelete">Remove Position</button>
+      </div>
+      <p class="exec-foot">Sending to Review does not delete the position. Remove it here after closing. This calculator never changes an order in DXTrade.</p>
+    </div>
+  </div>
+  </div><!-- exec-left -->
+
+  <div class="card" id="execSummaryCard">
+    <div class="head"><h2>Real-Fill Risk &amp; Profit</h2></div>
+    <div class="body">
+      <button id="execJumpToEditor" class="full exec-jump">↓ Edit Selected Position</button>
+      <div id="execEmptyResult" class="notice">Select or create a position, then enter its actual fill price and quantity.</div>
+      <div id="execResults" style="display:none">
+        <div class="summary">
+          <div class="stat"><div class="name">Filled Quantity</div><div id="exOutQty" class="value good">—</div><div class="small">Never auto-resized</div></div>
+          <div class="stat"><div class="name">Original Stop Risk</div><div id="exOutRisk" class="value">—</div><div class="small">Actual fill, fees + funding</div></div>
+          <div class="stat"><div class="name">Net Take Profit</div><div id="exOutProfit" class="value">—</div><div class="small">After estimated costs</div></div>
+          <div class="stat"><div class="name">Net Risk : Reward</div><div id="exOutRR" class="value">—</div><div class="small">Original stop vs TP</div></div>
+          <div class="stat"><div class="name">Risk vs Budget</div><div id="exOutDiff" class="value">—</div><div class="small">Compared with original limit</div></div>
+        </div>
+        <div id="exRiskMeterWrap" style="display:none;margin-top:14px">
+          <div class="row" style="padding:0;border:0"><span class="l">Risk budget utilization</span><strong id="exRiskMeterText">—</strong></div>
+          <div class="risk-meter"><div id="exRiskMeterBar"></div></div>
+        </div>
+        <div id="execAlert" class="excaution"></div>
+        <h3 class="section">Actual Execution Breakdown</h3>
+        <div class="rows">
+          <div class="row"><div class="l">Entry slippage (adverse impact)</div><div id="exOutSlip" class="a">—</div></div>
+          <div class="row"><div class="l">Gross P/L at original stop</div><div id="exOutStopGross" class="a">—</div></div>
+          <div class="row"><div class="l">Net result at original stop</div><div id="exOutStopNet" class="a">—</div></div>
+          <div class="row"><div class="l">Net result at ACTIVE stop</div><div id="exOutActiveStop" class="a">—</div></div>
+          <div class="row"><div class="l">Exit commission at original stop</div><div id="exOutStopFee" class="a">—</div></div>
+          <div class="row"><div class="l">Entry commission</div><div id="exOutEntryFee" class="a">—</div></div>
+          <div class="row"><div class="l">Est. funding</div><div id="exOutFunding" class="a">—</div></div>
+          <div class="row"><div class="l">Gross take-profit</div><div id="exOutTPGross" class="a">—</div></div>
+          <div class="row"><div class="l">Exit commission at target</div><div id="exOutTPFee" class="a">—</div></div>
+          <div class="row"><div class="l">Break-even exit price</div><div id="exOutBreakEven" class="a">—</div></div>
+          <div class="row"><div class="l">Position notional</div><div id="exOutNotional" class="a">—</div></div>
+          <div class="row"><div class="l">Required margin (<span id="exOutLev">—</span>)</div><div id="exOutMargin" class="a">—</div></div>
+          <div class="row"><div class="l">Approx. available margin after trade</div><div id="exOutAvailable" class="a">—</div></div>
+        </div>
+        <h3 class="section">Optional Decision Support</h3>
+        <div class="rows">
+          <div class="row"><div class="l">Stop price for original risk budget</div><div id="exOutSuggestedStop" class="a">—</div></div>
+          <div class="row"><div class="l">Target preserving Planner's R multiple</div><div id="exOutSuggestedTP" class="a">—</div></div>
+          <div class="row"><div class="l">Est. net P/L at current quote</div><div id="exOutMarkNet" class="a">—</div></div>
+          <div class="row"><div class="l">Projected equity at active stop <span class="hint">Requires current mark</span></div><div id="exOutEquityAtStop" class="a">—</div></div>
+        </div>
+        <div class="notice exec-note">Risk is based on actual filled price and FIXED quantity. Estimates assume linear USD P&amp;L, 0.04% exit commissions and 0.033% funding per selected reset. Actual fills, swap charges, symbol quantity increments and margin limits may differ. Equity-at-stop uses the current quoted price as the mark reflected in your entered equity, and excludes already-applied entry costs and future funding to avoid double counting. Verify against DXTrade.</div>
+      </div>
     </div>
   </div>
 </div>
@@ -164,6 +316,9 @@
     <div class="field"><label>Average exit</label><div class="input"><span class="prefix">$</span><input id="reviewExit" type="number" inputmode="decimal" step=".001"></div></div>
     <div class="field"><label>Quantity</label><div class="input"><input id="reviewQty" type="number" inputmode="decimal" step=".01"></div></div>
     <div class="field"><label>Planned total risk <span class="hint">For R multiple</span></label><div class="input"><span class="prefix">$</span><input id="reviewRisk" type="number" inputmode="decimal" step=".01" value="800.00"></div></div>
+    <div class="field"><label for="reviewEntryFeeOverride">Actual entry commission <span class="hint">Optional override</span></label><div class="input"><span class="prefix">$</span><input id="reviewEntryFeeOverride" type="number" min="0" step="any" placeholder="Blank = calculated"></div></div>
+    <div class="field"><label for="reviewExitFeeOverride">Actual exit commission <span class="hint">Optional override</span></label><div class="input"><span class="prefix">$</span><input id="reviewExitFeeOverride" type="number" min="0" step="any" placeholder="Blank = calculated"></div></div>
+    <div class="field"><label for="reviewFundingCost">Funding/swap charged <span class="hint">Enter final broker amount</span></label><div class="input"><span class="prefix">$</span><input id="reviewFundingCost" type="number" min="0" step="any" value="0"></div></div>
     <button id="usePlanner" class="full">Use Current Planner Values</button>
   </div></div>
   <div class="card"><div class="head"><h2>Trade Result</h2></div><div class="body">
@@ -176,9 +331,11 @@
       <div class="stat"><div class="name">Position Value</div><div id="reviewNotional" class="value">—</div></div>
     </div>
     <h3 class="section">TradeZella-Style Breakdown</h3>
+    <div class="notice">For accurate realized P/L, enter your actual average fills, filled quantity, fees and charged funding from DXTrade. Blank commission overrides use 0.04% estimates.</div>
     <div class="rows">
       <div class="row"><div class="l">Entry commission</div><div id="reviewEntryFee" class="a">—</div></div>
       <div class="row"><div class="l">Exit commission</div><div id="reviewExitFee" class="a">—</div></div>
+      <div class="row"><div class="l">Funding/swap</div><div id="reviewFundingOut" class="a">—</div></div>
       <div class="row"><div class="l">Price movement per CFD</div><div id="reviewMove" class="a">—</div></div>
       <div class="row"><div class="l">Net P/L per CFD</div><div id="reviewPerCFD" class="a">—</div></div>
     </div>
@@ -215,7 +372,7 @@
 <div class="two">
   <div class="card"><div class="head"><h2>Planned Trade Impact</h2></div><div class="body">
     <div class="rows">
-      <div class="row"><div class="l">Balance if stopped</div><div id="balIfStop" class="a">—</div></div>
+      <div class="row"><div class="l">Estimated equity if stopped</div><div id="balIfStop" class="a">—</div></div>
       <div class="row"><div class="l">Daily loss remaining if stopped</div><div id="dailyIfStop" class="a">—</div></div>
       <div class="row"><div class="l">Drawdown remaining if stopped</div><div id="ddIfStop" class="a">—</div></div>
       <div class="row"><div class="l">Balance if take profit hits</div><div id="balIfTp" class="a">—</div></div>
@@ -282,10 +439,25 @@ function calcPlan(){
 $('saveRisk').onclick=()=>{const r=val('risk');if(r>0){localStorage.setItem('tradeifyDefaultRisk',r.toFixed(2));$('saveMsg').textContent=`Default risk saved at ${money(r)}.`;setTimeout(()=>$('saveMsg').textContent='',2200)}};
 $('clearTrade').onclick=()=>{$('entry').value='';$('stop').value='';$('tp').value='';$('trailStop').value='';$('fundingDays').value='0';$('usedMargin').value='0';clearPlanUI();$('entry').focus()};
 $('copyQty').onclick=async()=>{if(!plan.qty)return;try{await navigator.clipboard.writeText(plan.qty.toFixed(2));$('copyQty').textContent='Copied';setTimeout(()=>$('copyQty').textContent='Copy Position Size',1200)}catch{}};
-function calcReview(){const d=$('reviewDir').value,e=val('reviewEntry'),x=val('reviewExit'),q=val('reviewQty'),r=val('reviewRisk');if(!(e>0&&x>0&&q>0)){['reviewResult','reviewGross','reviewFees','reviewNet','reviewR','reviewNotional','reviewEntryFee','reviewExitFee','reviewMove','reviewPerCFD'].forEach(id=>$(id).textContent='—');return}const move=d==='LONG'?x-e:e-x,gross=move*q,ef=e*q*RATE,xf=x*q*RATE,fees=ef+xf,net=gross-fees,rm=r>0?net/r:NaN;$('reviewResult').textContent=net>0?'WIN':net<0?'LOSS':'BREAK-EVEN';$('reviewResult').className='value '+(net>0?'good':net<0?'bad':'');$('reviewGross').textContent=money(gross);$('reviewFees').textContent=money(fees);$('reviewNet').textContent=money(net);$('reviewNet').className='value '+(net>0?'good':net<0?'bad':'');$('reviewR').textContent=Number.isFinite(rm)?num(rm,2)+'R':'—';$('reviewNotional').textContent=money(e*q);$('reviewEntryFee').textContent=money(ef);$('reviewExitFee').textContent=money(xf);$('reviewMove').textContent=money(move);$('reviewPerCFD').textContent=money(net/q)}
-['reviewDir','reviewEntry','reviewExit','reviewQty','reviewRisk'].forEach(id=>$(id).addEventListener('input',calcReview));
-$('usePlanner').onclick=()=>{if(!plan.qty)return;$('reviewDir').value=plan.dir;$('reviewEntry').value=plan.entry;$('reviewQty').value=plan.qty.toFixed(2);$('reviewRisk').value=plan.total.toFixed(2);calcReview()};
-const evalIds=['startBal','currentBal','currentEquity','profitTarget','maxDrawdown','maxDaily','todayPnL'];evalIds.forEach(id=>$(id).addEventListener('input',()=>{updateDashboard();calcPlan()}));
+function calcReview(){
+ const d=$('reviewDir').value,e=val('reviewEntry'),x=val('reviewExit'),q=val('reviewQty'),r=val('reviewRisk'),fund=val('reviewFundingCost');
+ if(!(e>0&&x>0&&q>0)){
+   ['reviewResult','reviewGross','reviewFees','reviewNet','reviewR','reviewNotional','reviewEntryFee','reviewExitFee','reviewFundingOut','reviewMove','reviewPerCFD'].forEach(id=>$(id).textContent='—');return;
+ }
+ const move=d==='LONG'?x-e:e-x,gross=move*q;
+ const actualEF=val('reviewEntryFeeOverride'),actualXF=val('reviewExitFeeOverride');
+ const ef=Number.isFinite(actualEF)&&actualEF>=0?actualEF:e*q*RATE;
+ const xf=Number.isFinite(actualXF)&&actualXF>=0?actualXF:x*q*RATE;
+ const fees=ef+xf, funding=Number.isFinite(fund)&&fund>=0?fundingGuard(fund):0;
+ const net=gross-fees-funding,rm=r>0?net/r:NaN;
+ $('reviewResult').textContent=net>0?'WIN':net<0?'LOSS':'BREAK-EVEN';$('reviewResult').className='value '+(net>0?'good':net<0?'bad':'');
+ $('reviewGross').textContent=money(gross);$('reviewFees').textContent=money(fees);$('reviewNet').textContent=money(net);$('reviewNet').className='value '+(net>0?'good':net<0?'bad':'');
+ $('reviewR').textContent=Number.isFinite(rm)?num(rm,2)+'R':'—';$('reviewNotional').textContent=money(e*q);$('reviewEntryFee').textContent=money(ef);$('reviewExitFee').textContent=money(xf);$('reviewFundingOut').textContent=money(funding);$('reviewMove').textContent=money(move);$('reviewPerCFD').textContent=money(net/q);
+}
+function fundingGuard(amount){return Math.max(0,amount)}
+['reviewDir','reviewEntry','reviewExit','reviewQty','reviewRisk','reviewEntryFeeOverride','reviewExitFeeOverride','reviewFundingCost'].forEach(id=>$(id).addEventListener('input',calcReview));
+$('usePlanner').onclick=()=>{if(!plan.qty)return;$('reviewDir').value=plan.dir;$('reviewEntry').value=plan.entry;$('reviewQty').value=plan.qty.toFixed(2);$('reviewRisk').value=plan.total.toFixed(2);$('reviewEntryFeeOverride').value='';$('reviewExitFeeOverride').value='';$('reviewFundingCost').value=plan.funding.toFixed(2);calcReview()};
+const evalIds=['startBal','currentBal','currentEquity','profitTarget','maxDrawdown','maxDaily','todayPnL'];evalIds.forEach(id=>$(id).addEventListener('input',()=>{updateDashboard();calcPlan();if(typeof renderExecResults==='function')renderExecResults()}));
 function updateDashboard(){
  const s=val('startBal'),c=val('currentBal'),e=val('currentEquity'),eq=Number.isFinite(e)?e:c,pt=val('profitTarget'),md=val('maxDrawdown'),dl=val('maxDaily'),today=val('todayPnL');
  $('dashBalance').textContent=money(c);$('dashEquity').textContent=Number.isFinite(eq)?`Equity ${money(eq)}`:'—';
@@ -301,6 +473,203 @@ $('clearEval').onclick=()=>{evalIds.forEach(id=>$(id).value='');localStorage.rem
 const savedRisk=localStorage.getItem('tradeifyDefaultRisk');if(savedRisk)$('risk').value=Number(savedRisk).toFixed(2);
 try{const obj=JSON.parse(localStorage.getItem('tradeifyEvalV6')||'{}');evalIds.forEach(id=>{if(obj[id]!==undefined)$(id).value=obj[id]})}catch{}
 $('reviewRisk').value=$('risk').value;updateDashboard();
+
+// ----- Trade Execution: multiple independent open positions, locally persisted. -----
+const EXEC_KEY='tradeforgeOpenPositionsV7';
+const EX_FIELDS={
+ exLabel:'label',exAccount:'account',exInstrument:'instrument',exDir:'dir',exRisk:'risk',
+ exPlannedEntry:'plannedEntry',exEntry:'actualEntry',exQty:'qty',exStop:'stop',exTP:'tp',
+ exTrail:'trail',exMark:'mark',exFunding:'days',exUsed:'otherMargin',exEntryFeeActual:'entryFeeOverride'
+};
+let openTrades=[],selectedExecId=null;
+function loadExecutions(){
+ try{const list=JSON.parse(localStorage.getItem(EXEC_KEY)||'[]');if(Array.isArray(list))openTrades=list.filter(x=>x&&typeof x==='object'&&typeof x.id==='string').slice(0,100).map(x=>({...x}));}catch{}
+}
+function saveExecutions(){
+ try{localStorage.setItem(EXEC_KEY,JSON.stringify(openTrades));$('execSavedState').textContent='Saved on this device';}
+ catch{$('execSavedState').textContent='Not saved — browser storage blocked or full';}
+}
+function activeExec(){return openTrades.find(x=>x.id===selectedExecId)||null}
+function safeFloat(v){if(v===null||v===undefined||String(v).trim()==='')return NaN;const n=Number(v);return Number.isFinite(n)?n:NaN}
+function validPositive(v){return Number.isFinite(v)&&v>0}
+function nonNeg(v){return Number.isFinite(v)&&v>=0}
+function makeExecId(){return 'pos-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10)}
+function getExecDefault(){return{
+ id:makeExecId(),createdAt:new Date().toISOString(),label:'',account:'50K Evaluation',
+ instrument:$('instrument').value||'PAXG',dir:'LONG',risk:$('risk').value||'800',
+ plannedEntry:'',actualEntry:'',qty:'',stop:'',tp:'',trail:'',mark:'',days:'0',otherMargin:'0',entryFeeOverride:'',plannedR:''
+}}
+function execNew(fromPlanner=false){
+ if(fromPlanner&&!(plan.qty>0)){window.alert('First calculate a valid trade in Trade Planner (entry, stop, and risk).');return;}
+ const p=getExecDefault();
+ if(fromPlanner){
+   Object.assign(p,{instrument:$('instrument').value,dir:plan.dir,risk:$('risk').value,plannedEntry:String(plan.entry),
+    actualEntry:'',qty:plan.qty.toFixed(2),stop:String(plan.stop),tp:Number.isFinite(plan.tp)?String(plan.tp):'',
+    trail:Number.isFinite(plan.trailStop)?String(plan.trailStop):'',days:String(plan.days||0),otherMargin:String(Math.max(0,val('usedMargin')||0)),
+    plannedR:Number.isFinite(plan.tpR)?String(plan.tpR):''});
+ }
+ openTrades.unshift(p);selectedExecId=p.id;saveExecutions();refreshExecList();loadExecEditor();showPage('execution');
+ if(fromPlanner)$('exEntry').focus();else $('exQty').focus();
+}
+function showPage(page){document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.page===page));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===page));}
+function refreshExecList(){
+ $('openCount').textContent=String(openTrades.length);$('execCountBadge').textContent=openTrades.length+' open';
+ $('execNoPositions').style.display=openTrades.length?'none':'block';
+ const list=$('execList');list.replaceChildren();
+ openTrades.forEach(p=>{
+  const b=document.createElement('button');b.type='button';b.className='exec-list-button'+(p.id===selectedExecId?' active':'');
+  const t=document.createElement('strong');t.textContent=(p.label||p.instrument||'Untitled')+' · '+(p.dir==='SHORT'?'SHORT':'LONG');
+  const detail=document.createElement('span');detail.className='small';
+  const price=validPositive(safeFloat(p.actualEntry))?money(safeFloat(p.actualEntry)):'Fill pending';
+  detail.textContent=(p.account||'Unassigned account')+' · '+(p.qty||'—')+' units · '+price;
+  b.append(t,detail);b.addEventListener('click',()=>{selectedExecId=p.id;refreshExecList();loadExecEditor();});list.append(b);
+ });
+}
+function loadExecEditor(){
+ const p=activeExec();$('execEditor').style.display=p?'block':'none';
+ if(!p){$('execResults').style.display='none';$('execEmptyResult').style.display='block';return;}
+ for(const [id,key] of Object.entries(EX_FIELDS)){$(id).value=p[key]??'';}
+ renderExecResults();
+}
+function clearExecOut(){[
+ 'exOutQty','exOutRisk','exOutProfit','exOutRR','exOutDiff','exOutSlip','exOutStopGross','exOutStopNet',
+ 'exOutActiveStop','exOutStopFee','exOutEntryFee','exOutFunding','exOutTPGross','exOutTPFee','exOutBreakEven',
+ 'exOutNotional','exOutLev','exOutMargin','exOutAvailable','exOutSuggestedStop','exOutSuggestedTP',
+ 'exOutMarkNet','exOutEquityAtStop'].forEach(id=>$(id).textContent='—');
+ $('exRiskMeterWrap').style.display='none';$('execAlert').style.display='none';
+}
+function execNumbers(p){
+ const e=safeFloat(p.actualEntry),q=safeFloat(p.qty),stop=safeFloat(p.stop),tp=safeFloat(p.tp),trail=safeFloat(p.trail),mark=safeFloat(p.mark);
+ const risk=safeFloat(p.risk),planned=safeFloat(p.plannedEntry),lev=LEVERAGE[p.instrument]||2;
+ const daysRaw=safeFloat(p.days),days=nonNeg(daysRaw)?Math.floor(daysRaw):0,entryFeeRaw=safeFloat(p.entryFeeOverride);
+ if(!validPositive(e)||!validPositive(q))return null;
+ const direction=p.dir==='SHORT'?-1:1,notional=e*q;
+ const entryFee=nonNeg(entryFeeRaw)?entryFeeRaw:notional*RATE;
+ const funding=notional*FUNDING_RATE*days;
+ const resultAt=price=>validPositive(price)?{
+  gross:direction*(price-e)*q,exitFee:price*q*RATE,
+  net:direction*(price-e)*q-entryFee-price*q*RATE-funding
+ }:null;
+ const stopResult=resultAt(stop),tpResult=resultAt(tp),activeResult=resultAt(validPositive(trail)?trail:stop),markResult=resultAt(mark);
+ const stopRisk=stopResult?Math.max(0,-stopResult.net):NaN;
+ const activeRisk=activeResult?Math.max(0,-activeResult.net):NaN;
+ const otherMargin=safeFloat(p.otherMargin),margin=notional/lev,eq=equityBasis();
+ const budgetStop=validPositive(risk)?direction===1?
+ (e*q+entryFee+funding-risk)/(q*(1-RATE)):
+ (risk+e*q-entryFee-funding)/(q*(1+RATE)):NaN;
+ const priorR=safeFloat(p.plannedR),desired=validPositive(priorR)&&Number.isFinite(stopRisk)?priorR*stopRisk:NaN;
+ const preserveTarget=Number.isFinite(desired)?direction===1?
+ (desired+e*q+entryFee+funding)/(q*(1-RATE)):
+ (e*q-entryFee-funding-desired)/(q*(1+RATE)):NaN;
+ return {e,q,stop,tp,trail,mark,risk,planned,lev,days,direction,notional,entryFee,funding,stopResult,tpResult,activeResult,markResult,stopRisk,activeRisk,otherMargin,margin,eq,budgetStop,preserveTarget};
+}
+function renderExecResults(){
+ const p=activeExec();if(!p)return;
+ $('execResults').style.display='block';$('execEmptyResult').style.display='none';clearExecOut();
+ const x=execNumbers(p);if(!x){$('execAlert').textContent='Enter the actual average entry AND filled quantity to calculate true risk. The filled quantity will not change when you edit the entry.';$('execAlert').style.display='block';return;}
+ const show=(id,v)=>$(id).textContent=v;
+ const cls=(id,v)=>$(id).className='value '+(v>0?'good':v<0?'bad':'');
+ show('exOutQty',num(x.q,Math.min(6,Math.max(2,String(x.q).split('.')[1]?.length||0))));
+ show('exOutRisk',Number.isFinite(x.stopRisk)?money(x.stopRisk):'Enter stop');
+ if(x.stopResult){show('exOutStopGross',money(x.stopResult.gross));show('exOutStopNet',money(x.stopResult.net));}
+ if(x.activeResult){show('exOutActiveStop',money(x.activeResult.net)+(validPositive(x.trail)?' (trailed)':' (original)'));}
+ const validTP=x.tpResult&&((x.direction===1&&x.tp>x.e)||(x.direction===-1&&x.tp<x.e));
+ if(validTP){show('exOutProfit',money(x.tpResult.net));cls('exOutProfit',x.tpResult.net);show('exOutTPGross',money(x.tpResult.gross));show('exOutTPFee',money(x.tpResult.exitFee));
+  if(x.stopRisk>0)show('exOutRR',num(x.tpResult.net/x.stopRisk,2)+':1');}
+ else if(validPositive(x.tp)){show('exOutProfit','Invalid TP direction');}
+ if(x.stopResult)show('exOutStopFee',money(x.stopResult.exitFee));
+ show('exOutEntryFee',money(x.entryFee));show('exOutFunding',money(x.funding));
+ show('exOutNotional',money(x.notional));show('exOutLev',x.lev+':1');show('exOutMargin',money(x.margin));
+ const breakeven=x.direction===1?(x.e*x.q+x.entryFee+x.funding)/(x.q*(1-RATE)):
+ (x.e*x.q-x.entryFee-x.funding)/(x.q*(1+RATE));
+ if(validPositive(breakeven))show('exOutBreakEven',num(breakeven,4));
+ if(validPositive(x.planned)){
+  const adverse=(x.e-x.planned)*x.direction*x.q;
+  const move=x.e-x.planned;
+  show('exOutSlip',`${move>=0?'+':''}${num(move,4)} per unit · ${adverse>=0?'+':''}${money(adverse)} adverse impact`);
+ }
+ if(x.stopResult&&validPositive(x.risk)){
+  const diff=x.stopRisk-x.risk,pct=diff/x.risk*100;
+  show('exOutDiff',(diff>=0?'+':'')+money(diff)+' ('+(pct>=0?'+':'')+num(pct,1)+'%)');cls('exOutDiff',-diff);
+  $('exRiskMeterWrap').style.display='block';$('exRiskMeterText').textContent=num(x.stopRisk/x.risk*100,1)+'%';
+  $('exRiskMeterBar').style.width=Math.min(100,x.stopRisk/x.risk*100)+'%';
+  $('exRiskMeterBar').style.background=diff>0.005?'var(--red)':'var(--green)';
+ }
+ if(validPositive(x.budgetStop))show('exOutSuggestedStop',num(x.budgetStop,4)+' (informational)');
+ if(validPositive(x.preserveTarget))show('exOutSuggestedTP',num(x.preserveTarget,4)+' (informational)');
+ if(x.markResult)show('exOutMarkNet',money(x.markResult.net));
+ if(validPositive(x.eq)&&x.activeResult&&validPositive(x.mark)){
+  // Equity already includes open mark-to-market. Only future mark-to-active-stop price change and exit fee are incremental.
+  const incremental=x.direction*( (validPositive(x.trail)?x.trail:x.stop)-x.mark)*x.q - x.activeResult.exitFee;
+  show('exOutEquityAtStop',money(x.eq+incremental));
+ }
+ if(validPositive(x.eq)){
+  const avail=x.eq-(nonNeg(x.otherMargin)?x.otherMargin:0)-x.margin;
+  show('exOutAvailable',money(avail));
+ }
+ let warnings=[];
+ if(x.stopResult&&validPositive(x.risk)&&x.stopRisk>x.risk+0.005)warnings.push(`Actual original-stop risk exceeds your ${money(x.risk)} budget by ${money(x.stopRisk-x.risk)}. The quantity stays unchanged.`);
+ if(validPositive(x.trail)&&validPositive(x.stop)&&((x.direction===1&&x.trail<x.stop)||(x.direction===-1&&x.trail>x.stop)))warnings.push('Your trailed stop is less protective than the original stop. Verify it is the actual working order.');
+ if(x.stopResult&&x.stopResult.net>=0)warnings.push('Original stop would not produce a net loss at this actual fill; double-check the order prices and direction.');
+ if(validPositive(x.tp)&&!validTP)warnings.push('Take-profit must be on the profitable side of the actual entry for this direction.');
+ if(validPositive(x.eq)&&x.eq-(nonNeg(x.otherMargin)?x.otherMargin:0)-x.margin<0)warnings.push('Estimated margin exceeds the entered equity after other used margin; confirm actual DXTrade free margin.');
+ if(!validPositive(x.stop))warnings.push('Enter the original stop to calculate stop risk.');
+ if(warnings.length){$('execAlert').textContent=warnings.join(' ');$('execAlert').style.display='block';}
+}
+for(const [id,key] of Object.entries(EX_FIELDS)){
+ $(id).addEventListener('input',()=>{const p=activeExec();if(!p)return;p[key]=$(id).value;saveExecutions();refreshExecList();renderExecResults();});
+}
+$('execExport').onclick=()=>{
+ const payload={format:'tradeforge-v7-openpositions',exportedAt:new Date().toISOString(),positions:openTrades};
+ const data=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+ const url=URL.createObjectURL(data),a=document.createElement('a');a.href=url;a.download='TradeForge-v7-positions-backup.json';
+ document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
+ $('execBackupMsg').textContent=`Exported ${openTrades.length} positions.`;
+};
+$('execRestore').onclick=()=>$('execRestoreFile').click();
+$('execRestoreFile').addEventListener('change',async()=>{
+ const file=$('execRestoreFile').files?.[0];if(!file)return;
+ try{
+  if(file.size>1000000)throw Error('File is too large.');
+  const parsed=JSON.parse(await file.text());
+  if(parsed?.format!=='tradeforge-v7-openpositions'||!Array.isArray(parsed.positions))throw Error('Not a TradeForge v7 positions backup.');
+  const valid=parsed.positions.slice(0,100).filter(p=>p&&typeof p==='object'&&typeof p.id==='string');
+  if(!valid.length){$('execBackupMsg').textContent='Backup has no open positions.';return;}
+  const existing=new Set(openTrades.map(p=>p.id));
+  const imported=[];
+  for(const item of valid){
+   if(existing.has(item.id))continue;
+   const p={...getExecDefault()};
+   for(const key of Object.values(EX_FIELDS))if(typeof item[key]==='string'&&item[key].length<150)p[key]=item[key];
+   if(typeof item.plannedR==='string')p.plannedR=item.plannedR;
+   p.id=item.id;p.createdAt=typeof item.createdAt==='string'?item.createdAt:p.createdAt;
+   imported.push(p);existing.add(p.id);
+  }
+  openTrades=[...imported,...openTrades].slice(0,100);
+  selectedExecId=imported[0]?.id||selectedExecId;saveExecutions();refreshExecList();loadExecEditor();
+  $('execBackupMsg').textContent=`Imported ${imported.length} positions (matching IDs skipped).`;
+ }catch(err){$('execBackupMsg').textContent=`Import failed: ${err.message}`;}
+ finally{$('execRestoreFile').value='';}
+});
+$('execJumpToResults').onclick=()=>$('execSummaryCard').scrollIntoView({behavior:'smooth',block:'start'});
+$('execJumpToEditor').onclick=()=>$('execEditorCard').scrollIntoView({behavior:'smooth',block:'start'});
+$('execNew').onclick=()=>execNew(false);
+$('execImport').onclick=()=>execNew(true);
+$('sendToExecution').onclick=()=>execNew(true);
+$('execDuplicate').onclick=()=>{const p=activeExec();if(!p)return;const n={...p,id:makeExecId(),createdAt:new Date().toISOString(),label:p.label?p.label+' (copy)':''};openTrades.unshift(n);selectedExecId=n.id;saveExecutions();refreshExecList();loadExecEditor();};
+$('execDelete').onclick=()=>{const p=activeExec();if(!p)return;if(!window.confirm(`Remove ${p.label||p.instrument} (${p.account||'unassigned'}) from the open-position list? This cannot be undone.`))return;openTrades=openTrades.filter(x=>x.id!==p.id);selectedExecId=openTrades[0]?.id||null;saveExecutions();refreshExecList();loadExecEditor();};
+$('execToReview').onclick=()=>{
+ const p=activeExec();if(!p)return;const x=execNumbers(p);
+ if(!x){window.alert('Enter an actual entry price and filled quantity first.');return;}
+ $('reviewDir').value=p.dir==='SHORT'?'SHORT':'LONG';$('reviewEntry').value=p.actualEntry;
+ $('reviewExit').value='';$('reviewQty').value=p.qty;
+ $('reviewRisk').value=Number.isFinite(x.stopRisk)&&x.stopRisk>0?x.stopRisk.toFixed(2):(p.risk||'');
+ $('reviewEntryFeeOverride').value=nonNeg(safeFloat(p.entryFeeOverride))?p.entryFeeOverride:'';
+ $('reviewExitFeeOverride').value='';$('reviewFundingCost').value=x.funding.toFixed(2);
+ calcReview();showPage('review');$('reviewExit').focus();
+};
+loadExecutions();selectedExecId=openTrades[0]?.id||null;refreshExecList();loadExecEditor();
+
 let deferredPrompt;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;$('installBtn').style.display='inline-block'});$('installBtn').onclick=async()=>{if(!deferredPrompt)return;deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;$('installBtn').style.display='none'};if('serviceWorker' in navigator&&location.protocol!=='file:')window.addEventListener('load',()=>navigator.serviceWorker.register('./service-worker.js'));
 })();
 </script>
