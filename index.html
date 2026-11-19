@@ -9,7 +9,7 @@
   
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-  <title>TradeForge v11</title>
+  <title>TradeForge v12</title>
   <style>
     :root {
       --bg:#0b0f14; --panel:#141a22; --panel2:#1b232e; --input:#0f151c;
@@ -519,7 +519,7 @@ const EX_FIELDS={
 };
 let openTrades=[],selectedExecId=null;
 function loadExecutions(){
- try{const list=JSON.parse(localStorage.getItem(EXEC_KEY)||'[]');if(Array.isArray(list))openTrades=list.filter(x=>x&&typeof x==='object'&&typeof x.id==='string').slice(0,100).map(x=>({...x}));}catch{}
+ try{const list=JSON.parse(localStorage.getItem(EXEC_KEY)||'[]');if(Array.isArray(list))openTrades=list.filter(x=>x&&typeof x==='object'&&typeof x.id==='string').slice(0,100).map(x=>({...x}));if(restoreLegacySnapshots(openTrades))localStorage.setItem(EXEC_KEY,JSON.stringify(openTrades));}catch{}
 }
 function saveExecutions(){
  try{localStorage.setItem(EXEC_KEY,JSON.stringify(openTrades));$('execSavedState').textContent='Saved locally'+(cloudReady?' · syncing…':'');scheduleCloudSave();}
@@ -529,11 +529,38 @@ function activeExec(){return openTrades.find(x=>x.id===selectedExecId)||null}
 function safeFloat(v){if(v===null||v===undefined||String(v).trim()==='')return NaN;const n=Number(v);return Number.isFinite(n)?n:NaN}
 function validPositive(v){return Number.isFinite(v)&&v>0}
 function nonNeg(v){return Number.isFinite(v)&&v>=0}
+// v12 compatibility: earlier TradeForge versions did not save separate immutable
+// Planner dollar amounts or stop/target snapshots. Recover what is mathematically
+// recoverable from the saved planned entry, stop, target, and original quantity.
+// Never substitute the user's risk BUDGET for the calculated planned stop loss.
+function restoreLegacyPlanSnapshot(p){
+ if(!p||!validPositive(safeFloat(p.plannedEntry)))return false;
+ let changed=false;
+ const capture=(key,value)=>{if(!validPositive(safeFloat(p[key]))&&validPositive(safeFloat(value))){p[key]=String(value);changed=true;}};
+ capture('plannedQty',p.qty);
+ capture('plannedStopPrice',p.stop);
+ capture('plannedTPPrice',p.tp);
+ const e=safeFloat(p.plannedEntry),q=safeFloat(p.plannedQty);
+ if(!validPositive(e)||!validPositive(q))return changed;
+ const d=p.dir==='SHORT'?-1:1;
+ const t=safeFloat(p.days),resets=nonNeg(t)?Math.floor(t):0;
+ const baseFee=e*q*RATE, funding=e*q*FUNDING_RATE*resets;
+ const netAt=price=>d*(price-e)*q-baseFee-price*q*RATE-funding;
+ const stop=safeFloat(p.plannedStopPrice),tp=safeFloat(p.plannedTPPrice);
+ if(!nonNeg(safeFloat(p.plannedStopAmount))&&validPositive(stop)){
+  p.plannedStopAmount=String(Math.max(0,-netAt(stop)));changed=true;
+ }
+ if(!Number.isFinite(safeFloat(p.plannedTPAmount))&&validPositive(tp)){
+  p.plannedTPAmount=String(netAt(tp));changed=true;
+ }
+ return changed;
+}
+function restoreLegacySnapshots(list){let changed=false;for(const p of list)if(restoreLegacyPlanSnapshot(p))changed=true;return changed;}
 function makeExecId(){return 'pos-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10)}
 function getExecDefault(){return{
  id:makeExecId(),createdAt:new Date().toISOString(),label:'',account:'50K Evaluation',
  instrument:$('instrument').value||'PAXG',dir:'LONG',risk:$('risk').value||'800',
- plannedEntry:'',actualEntry:'',qty:'',stop:'',tp:'',trail:'',mark:'',manualExit:'',days:'0',otherMargin:'0',entryFeeOverride:'',plannedR:'',plannedStopAmount:'',plannedTPAmount:'',plannedStopPrice:'',plannedTPPrice:''
+ plannedEntry:'',actualEntry:'',qty:'',stop:'',tp:'',trail:'',mark:'',manualExit:'',days:'0',otherMargin:'0',entryFeeOverride:'',plannedR:'',plannedQty:'',plannedStopAmount:'',plannedTPAmount:'',plannedStopPrice:'',plannedTPPrice:''
 }}
 function execNew(fromPlanner=false){
  if(fromPlanner&&!(plan.qty>0)){window.alert('First calculate a valid trade in Trade Planner (entry, stop, and risk).');return;}
@@ -542,7 +569,7 @@ function execNew(fromPlanner=false){
    Object.assign(p,{instrument:$('instrument').value,dir:plan.dir,risk:$('risk').value,plannedEntry:String(plan.entry),
     actualEntry:'',qty:plan.qty.toFixed(2),stop:String(plan.stop),tp:Number.isFinite(plan.tp)?String(plan.tp):'',
     trail:Number.isFinite(plan.trailStop)?String(plan.trailStop):'',days:String(plan.days||0),otherMargin:String(Math.max(0,val('usedMargin')||0)),
-    plannedR:Number.isFinite(plan.tpR)?String(plan.tpR):'',
+    plannedR:Number.isFinite(plan.tpR)?String(plan.tpR):'',plannedQty:String(plan.qty),
     plannedStopAmount:Number.isFinite(plan.total)?String(plan.total):'',plannedTPAmount:Number.isFinite(plan.tpNet)?String(plan.tpNet):'',
     plannedStopPrice:String(plan.stop),plannedTPPrice:Number.isFinite(plan.tp)?String(plan.tp):''});
  }
@@ -602,20 +629,22 @@ function execNumbers(p){
  return {e,q,stop,tp,trail,mark,risk,planned,lev,days,direction,notional,entryFee,funding,stopResult,tpResult,activeResult,markResult,manualExitResult,stopRisk,activeRisk,otherMargin,margin,eq,budgetStop,preserveTarget};
 }
 function originalPlanSnapshot(p){
- const e=safeFloat(p.plannedEntry),q=safeFloat(p.qty),stop=safeFloat(p.plannedStopPrice),tp=safeFloat(p.plannedTPPrice);
+ const e=safeFloat(p.plannedEntry);
+ // Use the immutable original quantity, never a later edited filled quantity.
+ const q=safeFloat(p.plannedQty);
+ const stop=safeFloat(p.plannedStopPrice),tp=safeFloat(p.plannedTPPrice);
  if(!validPositive(e)||!validPositive(q))return null;
  const dir=p.dir==='SHORT'?-1:1;
  const resets=safeFloat(p.days),days=nonNeg(resets)?Math.floor(resets):0;
  const funding=e*q*FUNDING_RATE*days,entryFee=e*q*RATE;
  const netAt=price=>validPositive(price)?dir*(price-e)*q-entryFee-price*q*RATE-funding:NaN;
- // The snapshot saved by Trade Planner stays immutable when actual fill or quantity is edited.
- // Prefer its original dollar calculations rather than recomputing from an edited quantity.
  const storedRisk=safeFloat(p.plannedStopAmount),storedTP=safeFloat(p.plannedTPAmount);
  return {entry:e,stop,risk:nonNeg(storedRisk)?storedRisk:(Number.isFinite(netAt(stop))?Math.max(0,-netAt(stop)):NaN),
-  tp: Number.isFinite(storedTP)?storedTP:netAt(tp)};
+  tp:Number.isFinite(storedTP)?storedTP:netAt(tp)};
 }
 function renderExecResults(){
  const p=activeExec();if(!p)return;
+ restoreLegacyPlanSnapshot(p);
  $('execResults').style.display='block';$('execEmptyResult').style.display='none';clearExecOut();
  const show=(id,v)=>$(id).textContent=v;
  const cls=(id,v)=>$(id).className='value '+(v>0?'good':v<0?'bad':'');
@@ -633,7 +662,7 @@ function renderExecResults(){
    if(Number.isFinite(snapshot.risk))show('exOutRisk',money(snapshot.risk));
    if(Number.isFinite(snapshot.tp)){show('exOutProfit',money(snapshot.tp));cls('exOutProfit',snapshot.tp);}
   }
-  $('execAlert').textContent='Awaiting actual fill. The planned dollar stop loss and net take profit are preserved; enter the actual average fill to show the actual values beside them.';
+  $('execAlert').textContent=(snapshot&&Number.isFinite(snapshot.risk)&&Number.isFinite(snapshot.tp))?'Awaiting actual fill. The planned stop loss and take profit are shown above; enter an actual average entry to display the actual figures alongside them.':'Awaiting actual fill. This older position is missing one or more saved Planner prices, so its original dollar amount cannot be reconstructed. Check the planned entry, stop and target prices, or send a new trade from Trade Planner.';
   $('execAlert').style.display='block';
   return;
  }
@@ -712,10 +741,11 @@ $('execRestoreFile').addEventListener('change',async()=>{
    if(existing.has(item.id))continue;
    const p={...getExecDefault()};
    for(const key of Object.values(EX_FIELDS))if(typeof item[key]==='string'&&item[key].length<150)p[key]=item[key];
-   for(const key of ['plannedR','plannedStopAmount','plannedTPAmount','plannedStopPrice','plannedTPPrice'])if(typeof item[key]==='string')p[key]=item[key];
+   for(const key of ['plannedR','plannedQty','plannedStopAmount','plannedTPAmount','plannedStopPrice','plannedTPPrice'])if(typeof item[key]==='string')p[key]=item[key];
    p.id=item.id;p.createdAt=typeof item.createdAt==='string'?item.createdAt:p.createdAt;
    imported.push(p);existing.add(p.id);
   }
+  restoreLegacySnapshots(imported);
   openTrades=[...imported,...openTrades].slice(0,100);
   selectedExecId=imported[0]?.id||selectedExecId;saveExecutions();refreshExecList();loadExecEditor();
   $('execBackupMsg').textContent=`Imported ${imported.length} positions (matching IDs skipped).`;
@@ -760,16 +790,18 @@ function collectCloudSnapshot(){
 }
 function applyCloudSnapshot(snapshot){
  if(!snapshot||!snapshot.fields||!Array.isArray(snapshot.openPositions))throw Error('Unexpected cloud snapshot format.');
- cloudApplying=true;
+ cloudApplying=true;let recovered=false;
  try{
   for(const id of SYNC_FIELDS)if($(id)&&Object.prototype.hasOwnProperty.call(snapshot.fields,id))$(id).value=String(snapshot.fields[id]??'');
   const unique=new Set();openTrades=snapshot.openPositions.filter(p=>p&&typeof p.id==='string'&&!unique.has(p.id)&&unique.add(p.id)).slice(0,100).map(p=>({...p}));
+  recovered=restoreLegacySnapshots(openTrades);
   selectedExecId=openTrades.some(p=>p.id===snapshot.selectedPositionId)?snapshot.selectedPositionId:openTrades[0]?.id||null;
   if(validPositive(safeFloat($('risk').value)))localStorage.setItem('tradeifyDefaultRisk',$('risk').value);
   const ev={};evalIds.forEach(id=>ev[id]=$(id).value);localStorage.setItem('tradeifyEvalV6',JSON.stringify(ev));
   localStorage.setItem(EXEC_KEY,JSON.stringify(openTrades));
   calcPlan();calcReview();updateDashboard();refreshExecList();loadExecEditor();
  }finally{cloudApplying=false;}
+ return recovered;
 }
 function scheduleCloudSave(){
  if(cloudApplying||!cloudReady||!cloudUser)return;
@@ -807,8 +839,9 @@ async function cloudPull(force=false){
   if(!force&&cloudVersion!==null&&row.version===cloudVersion)return;
   if(!force&&cloudVersion===null&&openTrades.length>0&&JSON.stringify(openTrades)!==JSON.stringify(row.payload?.openPositions||[])&&!confirm('This device already has locally saved open trades. Load the cloud copy and replace this device’s local data? You can first export a position backup from Trade Execution.')){cloudStatus('Cloud found, but local positions were left untouched. Use Load Cloud Data when ready.');return;}
   if(force&&(cloudDirty||cloudConflict)&&!confirm('Replace this device’s local TradeForge data with the current cloud snapshot? Export a backup first if you need to preserve local edits.'))return;
-  applyCloudSnapshot(row.payload);
+  const recovered=applyCloudSnapshot(row.payload);
   cloudVersion=row.version;cloudConflict=false;cloudDirty=false;cloudReady=true;
+  if(recovered)scheduleCloudSave();
   cloudStatus('Synced from cloud · '+new Date().toLocaleTimeString()+' · '+openTrades.length+' open positions.','ok');
  }catch(e){cloudStatus('Unable to load cloud data: '+e.message,'err');}
  finally{cloudWorking=false;}
