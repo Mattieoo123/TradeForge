@@ -1,5 +1,5 @@
-/* TradeForge v10 service worker — network-first app updates, offline fallback. */
-const CACHE = 'tradeforge-v10-20261119';
+/* TradeForge v11 service worker — network-first app updates, offline fallback. */
+const CACHE = 'tradeforge-v11-20261119';
 const ASSETS = ['./index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', event => {

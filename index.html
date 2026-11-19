@@ -9,7 +9,7 @@
   
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-  <title>TradeForge v10</title>
+  <title>TradeForge v11</title>
   <style>
     :root {
       --bg:#0b0f14; --panel:#141a22; --panel2:#1b232e; --input:#0f151c;
@@ -277,8 +277,8 @@
       <div id="execResults" style="display:none">
         <div class="summary">
           <div class="stat"><div class="name">Filled Quantity</div><div id="exOutQty" class="value good">—</div><div class="small">Planned quantity until edited · never auto-resized</div></div>
-          <div class="stat"><div class="name">Original Stop Risk</div><div id="exOutRisk" class="value">—</div><div class="small">Planned before entry · recalculated at actual fill</div></div>
-          <div class="stat"><div class="name">Net Take Profit</div><div id="exOutProfit" class="value">—</div><div class="small">Planned before entry · recalculated at actual fill</div></div>
+          <div class="stat"><div class="name">Planned Stop Loss | Actual Stop Loss</div><div id="exOutRisk" class="value">—</div><div class="small">Original planned dollar loss stays on the left; actual-fill dollar loss appears on the right</div></div>
+          <div class="stat"><div class="name">Planned Take Profit | Actual Take Profit</div><div id="exOutProfit" class="value">—</div><div class="small">Original planned net profit stays on the left; actual-fill net profit appears on the right</div></div>
           <div class="stat"><div class="name">Net at Active Stop</div><div id="exOutActiveStopCard" class="value">—</div><div class="small">Current stop, after estimated costs</div></div>
           <div class="stat"><div class="name">Net at Manual Exit</div><div id="exOutManualNet" class="value">—</div><div class="small">Estimated net P/L using entered manual exit price</div></div>
         </div>
@@ -633,13 +633,17 @@ function renderExecResults(){
    if(Number.isFinite(snapshot.risk))show('exOutRisk',money(snapshot.risk));
    if(Number.isFinite(snapshot.tp)){show('exOutProfit',money(snapshot.tp));cls('exOutProfit',snapshot.tp);}
   }
-  $('execAlert').textContent='Awaiting actual fill. Quantity and estimates above are from the plan. Enter the actual average entry to recalculate the dollar results. The original planned stop remains visible in the breakdown for slippage comparison.';
+  $('execAlert').textContent='Awaiting actual fill. The planned dollar stop loss and net take profit are preserved; enter the actual average fill to show the actual values beside them.';
   $('execAlert').style.display='block';
   return;
  }
  const x=execNumbers(p);if(!x){$('execAlert').textContent='Enter a valid filled quantity to calculate true risk.';$('execAlert').style.display='block';return;}
  show('exOutQty',num(x.q,Math.min(6,Math.max(2,String(x.q).split('.')[1]?.length||0))));
- show('exOutRisk',Number.isFinite(x.stopRisk)?money(x.stopRisk):'Enter stop');
+ // Preserve the Planner's original dollar figures even after an actual fill is entered.
+ // The values on the right are recalculated using the actual average fill and fixed quantity.
+ const plannedRiskLabel=snapshot&&Number.isFinite(snapshot.risk)?money(snapshot.risk):'—';
+ const actualRiskLabel=x.stopResult&&Number.isFinite(x.stopRisk)?money(x.stopRisk):'Enter stop';
+ show('exOutRisk',plannedRiskLabel+' | '+actualRiskLabel);
  if(x.stopResult){show('exOutStopGross',money(x.stopResult.gross));show('exOutStopNet',money(x.stopResult.net));}
  if(x.activeResult){
   show('exOutActiveStop',money(x.activeResult.net)+(validPositive(x.trail)?' (trailed)':' (original)'));
@@ -647,9 +651,10 @@ function renderExecResults(){
  }
  if(x.manualExitResult){show('exOutManualNet',money(x.manualExitResult.net));cls('exOutManualNet',x.manualExitResult.net);}
  const validTP=x.tpResult&&((x.direction===1&&x.tp>x.e)||(x.direction===-1&&x.tp<x.e));
- if(validTP){show('exOutProfit',money(x.tpResult.net));cls('exOutProfit',x.tpResult.net);show('exOutTPGross',money(x.tpResult.gross));show('exOutTPFee',money(x.tpResult.exitFee));
+ const plannedTPLabel=snapshot&&Number.isFinite(snapshot.tp)?money(snapshot.tp):'—';
+ if(validTP){show('exOutProfit',plannedTPLabel+' | '+money(x.tpResult.net));cls('exOutProfit',x.tpResult.net);show('exOutTPGross',money(x.tpResult.gross));show('exOutTPFee',money(x.tpResult.exitFee));
   if(x.stopRisk>0)show('exOutRR',num(x.tpResult.net/x.stopRisk,2)+':1');}
- else if(validPositive(x.tp)){show('exOutProfit','Invalid TP direction');}
+ else {show('exOutProfit',plannedTPLabel+' | '+(validPositive(x.tp)?'Invalid TP direction':'Enter target'));}
  if(x.stopResult)show('exOutStopFee',money(x.stopResult.exitFee));
  show('exOutEntryFee',money(x.entryFee));show('exOutFunding',money(x.funding));
  show('exOutNotional',money(x.notional));show('exOutLev',x.lev+':1');show('exOutMargin',money(x.margin));
