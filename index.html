@@ -9,7 +9,7 @@
   
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-  <title>TradeForge v9</title>
+  <title>TradeForge v10</title>
   <style>
     :root {
       --bg:#0b0f14; --panel:#141a22; --panel2:#1b232e; --input:#0f151c;
@@ -252,6 +252,7 @@
         <div class="field"><label for="exTrail">Current / trailed stop <span class="hint">Overrides original SL</span></label><div class="input"><span class="prefix">$</span><input id="exTrail" type="number" inputmode="decimal" min="0" step="any"></div></div>
         <div class="field"><label for="exMark">Current market price <span class="hint">Optional · mark/quote</span></label><div class="input"><span class="prefix">$</span><input id="exMark" type="number" inputmode="decimal" min="0" step="any"></div></div>
       </div>
+      <div class="field"><label for="exManualExit">Manual exit price <span class="hint">Optional · actual closing fill</span></label><div class="input"><span class="prefix">$</span><input id="exManualExit" type="number" inputmode="decimal" min="0" step="any" placeholder="Enter actual manual exit price"></div><div class="small">When entered, the net result appears below and transfers to Trade Review.</div></div>
       <h3 class="section">Costs &amp; Margin</h3>
       <div class="exec-field-cols">
         <div class="field"><label for="exFunding">Expected funding resets</label><div class="input"><input id="exFunding" type="number" inputmode="numeric" min="0" step="1" value="0"></div></div>
@@ -274,30 +275,20 @@
       <button id="execJumpToEditor" class="full exec-jump">↓ Edit Selected Position</button>
       <div id="execEmptyResult" class="notice">Select or create a position, then enter its actual fill price and quantity.</div>
       <div id="execResults" style="display:none">
-        <h3 class="section" style="margin-top:0">Saved Trade Planner Targets</h3>
-        <div class="summary" id="execPlannedSummary">
-          <div class="stat"><div class="name">Planned Stop Loss ($)</div><div id="exPlannedStopAmount" class="value bad">—</div><div class="small">Original Planner estimate including fees/funding</div></div>
-          <div class="stat"><div class="name">Planned Take Profit ($)</div><div id="exPlannedTPAmount" class="value good">—</div><div class="small">Original net Planner estimate</div></div>
-          <div class="stat"><div class="name">Planned Stop / Target Prices</div><div id="exPlannedPrices" class="value" style="font-size:.95rem">—</div><div class="small">Reference only; unaffected by actual fill edits</div></div>
-        </div>
-        <h3 class="section">Actual Fill Calculations</h3>
         <div class="summary">
-          <div class="stat"><div class="name">Filled Quantity</div><div id="exOutQty" class="value good">—</div><div class="small">Never auto-resized</div></div>
-          <div class="stat"><div class="name">Original Stop Risk</div><div id="exOutRisk" class="value">—</div><div class="small">Actual fill, fees + funding</div></div>
-          <div class="stat"><div class="name">Net Take Profit</div><div id="exOutProfit" class="value">—</div><div class="small">After estimated costs</div></div>
+          <div class="stat"><div class="name">Filled Quantity</div><div id="exOutQty" class="value good">—</div><div class="small">Planned quantity until edited · never auto-resized</div></div>
+          <div class="stat"><div class="name">Original Stop Risk</div><div id="exOutRisk" class="value">—</div><div class="small">Planned before entry · recalculated at actual fill</div></div>
+          <div class="stat"><div class="name">Net Take Profit</div><div id="exOutProfit" class="value">—</div><div class="small">Planned before entry · recalculated at actual fill</div></div>
           <div class="stat"><div class="name">Net at Active Stop</div><div id="exOutActiveStopCard" class="value">—</div><div class="small">Current stop, after estimated costs</div></div>
-          <div class="stat"><label class="name" for="exManualExit" style="display:block;margin-bottom:7px">Manual Exit Price ($)</label><div class="input"><span class="prefix">$</span><input id="exManualExit" type="number" inputmode="decimal" min="0" step="any" placeholder="Actual exit fill" aria-label="Manual exit fill price"></div><div class="small">Optional · save actual average exit</div></div>
-          <div class="stat"><div class="name">Net at Manual Exit</div><div id="exOutManualNet" class="value">—</div><div class="small">Estimated realized P/L at entered exit</div></div>
-          <div class="stat"><div class="name">Risk vs Budget</div><div id="exOutDiff" class="value">—</div><div class="small">Compared with original limit</div></div>
-        </div>
-        <div id="exRiskMeterWrap" style="display:none;margin-top:14px">
-          <div class="row" style="padding:0;border:0"><span class="l">Risk budget utilization</span><strong id="exRiskMeterText">—</strong></div>
-          <div class="risk-meter"><div id="exRiskMeterBar"></div></div>
+          <div class="stat"><div class="name">Net at Manual Exit</div><div id="exOutManualNet" class="value">—</div><div class="small">Estimated net P/L using entered manual exit price</div></div>
         </div>
         <div id="execAlert" class="excaution"></div>
         <h3 class="section">Actual Execution Breakdown</h3>
         <div class="rows">
           <div class="row"><div class="l">Net Risk : Reward (original stop vs TP)</div><div id="exOutRR" class="a">—</div></div>
+          <div class="row"><div class="l">Original planned entry price</div><div id="exOutOriginalEntry" class="a">—</div></div>
+          <div class="row"><div class="l">Original planned stop-loss price</div><div id="exOutOriginalStopPrice" class="a">—</div></div>
+          <div class="row"><div class="l">Original planned stop risk (before slippage)</div><div id="exOutOriginalStopRisk" class="a">—</div></div>
           <div class="row"><div class="l">Entry slippage (adverse impact)</div><div id="exOutSlip" class="a">—</div></div>
           <div class="row"><div class="l">Gross P/L at original stop</div><div id="exOutStopGross" class="a">—</div></div>
           <div class="row"><div class="l">Net result at original stop</div><div id="exOutStopNet" class="a">—</div></div>
@@ -579,11 +570,11 @@ function loadExecEditor(){
  renderExecResults();
 }
 function clearExecOut(){[
- 'exOutQty','exOutRisk','exOutProfit','exOutRR','exOutDiff','exOutSlip','exOutStopGross','exOutStopNet',
+ 'exOutQty','exOutRisk','exOutProfit','exOutRR','exOutOriginalEntry','exOutOriginalStopPrice','exOutOriginalStopRisk','exOutSlip','exOutStopGross','exOutStopNet',
  'exOutActiveStop','exOutActiveStopCard','exOutManualNet','exOutStopFee','exOutEntryFee','exOutFunding','exOutTPGross','exOutTPFee','exOutBreakEven',
  'exOutNotional','exOutLev','exOutMargin','exOutAvailable','exOutSuggestedStop','exOutSuggestedTP',
  'exOutMarkNet','exOutEquityAtStop'].forEach(id=>$(id).textContent='—');
- $('exRiskMeterWrap').style.display='none';$('execAlert').style.display='none';
+ $('execAlert').style.display='none';
 }
 function execNumbers(p){
  const e=safeFloat(p.actualEntry),q=safeFloat(p.qty),stop=safeFloat(p.stop),tp=safeFloat(p.tp),trail=safeFloat(p.trail),mark=safeFloat(p.mark),manualExit=safeFloat(p.manualExit);
@@ -610,16 +601,43 @@ function execNumbers(p){
  (e*q-entryFee-funding-desired)/(q*(1+RATE)):NaN;
  return {e,q,stop,tp,trail,mark,risk,planned,lev,days,direction,notional,entryFee,funding,stopResult,tpResult,activeResult,markResult,manualExitResult,stopRisk,activeRisk,otherMargin,margin,eq,budgetStop,preserveTarget};
 }
+function originalPlanSnapshot(p){
+ const e=safeFloat(p.plannedEntry),q=safeFloat(p.qty),stop=safeFloat(p.plannedStopPrice),tp=safeFloat(p.plannedTPPrice);
+ if(!validPositive(e)||!validPositive(q))return null;
+ const dir=p.dir==='SHORT'?-1:1;
+ const resets=safeFloat(p.days),days=nonNeg(resets)?Math.floor(resets):0;
+ const funding=e*q*FUNDING_RATE*days,entryFee=e*q*RATE;
+ const netAt=price=>validPositive(price)?dir*(price-e)*q-entryFee-price*q*RATE-funding:NaN;
+ // The snapshot saved by Trade Planner stays immutable when actual fill or quantity is edited.
+ // Prefer its original dollar calculations rather than recomputing from an edited quantity.
+ const storedRisk=safeFloat(p.plannedStopAmount),storedTP=safeFloat(p.plannedTPAmount);
+ return {entry:e,stop,risk:nonNeg(storedRisk)?storedRisk:(Number.isFinite(netAt(stop))?Math.max(0,-netAt(stop)):NaN),
+  tp: Number.isFinite(storedTP)?storedTP:netAt(tp)};
+}
 function renderExecResults(){
  const p=activeExec();if(!p)return;
  $('execResults').style.display='block';$('execEmptyResult').style.display='none';clearExecOut();
- $('exPlannedStopAmount').textContent=validPositive(safeFloat(p.plannedStopAmount))?money(safeFloat(p.plannedStopAmount)):'Not recorded';
- $('exPlannedTPAmount').textContent=Number.isFinite(safeFloat(p.plannedTPAmount))?money(safeFloat(p.plannedTPAmount)):'Not recorded';
- const stopPrice=safeFloat(p.plannedStopPrice),tpPrice=safeFloat(p.plannedTPPrice);
- $('exPlannedPrices').textContent=(validPositive(stopPrice)?'SL '+num(stopPrice,4):'SL —')+' / '+(validPositive(tpPrice)?'TP '+num(tpPrice,4):'TP —');
- const x=execNumbers(p);if(!x){$('execAlert').textContent='Enter the actual average entry AND filled quantity to calculate true risk. The filled quantity will not change when you edit the entry.';$('execAlert').style.display='block';return;}
  const show=(id,v)=>$(id).textContent=v;
  const cls=(id,v)=>$(id).className='value '+(v>0?'good':v<0?'bad':'');
+ const snapshot=originalPlanSnapshot(p);
+ const quantity=safeFloat(p.qty);
+ if(validPositive(quantity))show('exOutQty',num(quantity,Math.min(8,Math.max(2,String(quantity).split('.')[1]?.length||0))));
+ if(snapshot){
+  show('exOutOriginalEntry',num(snapshot.entry,4));
+  if(validPositive(snapshot.stop))show('exOutOriginalStopPrice',num(snapshot.stop,4));
+  if(Number.isFinite(snapshot.risk))show('exOutOriginalStopRisk',money(snapshot.risk));
+ }
+ const actualEntry=safeFloat(p.actualEntry);
+ if(!validPositive(actualEntry)){
+  if(snapshot){
+   if(Number.isFinite(snapshot.risk))show('exOutRisk',money(snapshot.risk));
+   if(Number.isFinite(snapshot.tp)){show('exOutProfit',money(snapshot.tp));cls('exOutProfit',snapshot.tp);}
+  }
+  $('execAlert').textContent='Awaiting actual fill. Quantity and estimates above are from the plan. Enter the actual average entry to recalculate the dollar results. The original planned stop remains visible in the breakdown for slippage comparison.';
+  $('execAlert').style.display='block';
+  return;
+ }
+ const x=execNumbers(p);if(!x){$('execAlert').textContent='Enter a valid filled quantity to calculate true risk.';$('execAlert').style.display='block';return;}
  show('exOutQty',num(x.q,Math.min(6,Math.max(2,String(x.q).split('.')[1]?.length||0))));
  show('exOutRisk',Number.isFinite(x.stopRisk)?money(x.stopRisk):'Enter stop');
  if(x.stopResult){show('exOutStopGross',money(x.stopResult.gross));show('exOutStopNet',money(x.stopResult.net));}
@@ -642,13 +660,6 @@ function renderExecResults(){
   const adverse=(x.e-x.planned)*x.direction*x.q;
   const move=x.e-x.planned;
   show('exOutSlip',`${move>=0?'+':''}${num(move,4)} per unit · ${adverse>=0?'+':''}${money(adverse)} adverse impact`);
- }
- if(x.stopResult&&validPositive(x.risk)){
-  const diff=x.stopRisk-x.risk,pct=diff/x.risk*100;
-  show('exOutDiff',(diff>=0?'+':'')+money(diff)+' ('+(pct>=0?'+':'')+num(pct,1)+'%)');cls('exOutDiff',-diff);
-  $('exRiskMeterWrap').style.display='block';$('exRiskMeterText').textContent=num(x.stopRisk/x.risk*100,1)+'%';
-  $('exRiskMeterBar').style.width=Math.min(100,x.stopRisk/x.risk*100)+'%';
-  $('exRiskMeterBar').style.background=diff>0.005?'var(--red)':'var(--green)';
  }
  if(validPositive(x.budgetStop))show('exOutSuggestedStop',num(x.budgetStop,4)+' (informational)');
  if(validPositive(x.preserveTarget))show('exOutSuggestedTP',num(x.preserveTarget,4)+' (informational)');
