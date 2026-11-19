@@ -9,7 +9,7 @@
   
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-  <title>TradeForge v7</title>
+  <title>TradeForge v9</title>
   <style>
     :root {
       --bg:#0b0f14; --panel:#141a22; --panel2:#1b232e; --input:#0f151c;
@@ -103,6 +103,13 @@
       #execution .summary{grid-template-columns:repeat(2,minmax(0,1fr))}
       .exec-jump{display:block}
     }
+    .cloud-status{border:1px solid var(--border);border-radius:12px;background:var(--panel2);padding:11px 13px;color:var(--muted);font-size:.81rem;line-height:1.5;margin-bottom:12px}
+    .cloud-status.ok{border-color:rgba(94,211,154,.5);color:var(--green)}
+    .cloud-status.err{border-color:rgba(255,115,127,.45);color:var(--red)}
+    .cloud-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .cloud-buttons{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+    .cloud-buttons button{flex:1;min-width:140px}
+    @media(max-width:620px){.cloud-grid{grid-template-columns:1fr}}
     .exec-foot{margin-top:10px;color:var(--muted);font-size:.77rem;line-height:1.5}
     @media(max-width:560px){.exec-field-cols{grid-template-columns:1fr}}
   </style>
@@ -119,6 +126,7 @@
   <button class="tab" data-page="execution">Trade Execution <span id="openCount" class="nav-count">0</span></button>
   <button class="tab" data-page="review">Trade Review</button>
   <button class="tab" data-page="dashboard">Evaluation Dashboard</button>
+  <button class="tab" data-page="cloud">Cloud Sync <span id="syncDot" class="nav-count">○</span></button>
 </nav>
 
 <section id="planner" class="page active">
@@ -129,7 +137,7 @@
       <div class="field"><label>Instrument <span class="hint">Sets leverage automatically</span></label><div class="input"><select id="instrument">
         <option value="PAXG">PAXG/USD · Gold · 5:1</option><option value="XYZ100">XYZ100/USD · Nasdaq 100 · 2:1</option><option value="UKOIL">UKOIL/USD · Brent Oil · 5:1</option><option value="SP500">SP500/USD · S&amp;P 500 · 2:1</option><option value="SILVER">SILVER/USD · Silver · 5:1</option><option value="HOOD">HOOD/USD · Robinhood · 2:1</option><option value="HYPE">HYPE/USD · Hyperliquid · 2:1</option><option value="CUSTOM5">Custom 5:1 instrument</option><option value="CUSTOM2">Custom 2:1 instrument</option>
       </select></div></div>
-      <div class="field"><label>Total risk limit <span class="hint">YOU control this · saved locally</span></label><div class="input"><span class="prefix">$</span><input id="risk" type="number" inputmode="decimal" step=".01" value="800.00"></div></div>
+      <div class="field"><label>Total risk limit <span class="hint">YOU control this · syncable</span></label><div class="input"><span class="prefix">$</span><input id="risk" type="number" inputmode="decimal" step=".01" value="800.00"></div></div>
       <div class="field"><label>Entry price</label><div class="input"><span class="prefix">$</span><input id="entry" type="number" inputmode="decimal" step=".001" placeholder="110.46"></div></div>
       <div class="field"><label>Stop-loss price</label><div class="input"><span class="prefix">$</span><input id="stop" type="number" inputmode="decimal" step=".001" placeholder="113.03"></div></div>
       <div class="field"><label>Take-profit price <span class="hint">Optional</span></label><div class="input"><span class="prefix">$</span><input id="tp" type="number" inputmode="decimal" step=".001" placeholder="107.00"></div></div>
@@ -212,7 +220,7 @@
       <div id="execBackupMsg" class="small-label" style="margin-top:7px" role="status"></div>
       <div id="execList" class="exec-list"></div>
       <div id="execNoPositions" class="notice">No saved open positions yet. Start a position here, or send one over from Trade Planner.</div>
-      <div class="exec-foot">Open positions are saved <strong>on this browser/device only</strong>. They do not sync with DXTrade or another device. Changing browser data may erase them.</div>
+      <div class="exec-foot">Positions are saved locally for offline use. When Cloud Sync is connected, your TradeForge data is also saved securely to your account and can be accessed on your other devices. This app does not connect to DXTrade.</div>
     </div>
   </div>
   <div class="card" id="execEditorCard">
@@ -255,7 +263,7 @@
         <button id="execDuplicate">Duplicate</button>
         <button id="execDelete">Remove Position</button>
       </div>
-      <p class="exec-foot">Sending to Review does not delete the position. Remove it here after closing. This calculator never changes an order in DXTrade.</p>
+      <p class="exec-foot">Sending to Review carries over a saved manual exit price, if provided; otherwise enter the exit in Review. Sending does not delete the position. Remove it here after closing. This calculator never changes an order in DXTrade.</p>
     </div>
   </div>
   </div><!-- exec-left -->
@@ -266,11 +274,20 @@
       <button id="execJumpToEditor" class="full exec-jump">↓ Edit Selected Position</button>
       <div id="execEmptyResult" class="notice">Select or create a position, then enter its actual fill price and quantity.</div>
       <div id="execResults" style="display:none">
+        <h3 class="section" style="margin-top:0">Saved Trade Planner Targets</h3>
+        <div class="summary" id="execPlannedSummary">
+          <div class="stat"><div class="name">Planned Stop Loss ($)</div><div id="exPlannedStopAmount" class="value bad">—</div><div class="small">Original Planner estimate including fees/funding</div></div>
+          <div class="stat"><div class="name">Planned Take Profit ($)</div><div id="exPlannedTPAmount" class="value good">—</div><div class="small">Original net Planner estimate</div></div>
+          <div class="stat"><div class="name">Planned Stop / Target Prices</div><div id="exPlannedPrices" class="value" style="font-size:.95rem">—</div><div class="small">Reference only; unaffected by actual fill edits</div></div>
+        </div>
+        <h3 class="section">Actual Fill Calculations</h3>
         <div class="summary">
           <div class="stat"><div class="name">Filled Quantity</div><div id="exOutQty" class="value good">—</div><div class="small">Never auto-resized</div></div>
           <div class="stat"><div class="name">Original Stop Risk</div><div id="exOutRisk" class="value">—</div><div class="small">Actual fill, fees + funding</div></div>
           <div class="stat"><div class="name">Net Take Profit</div><div id="exOutProfit" class="value">—</div><div class="small">After estimated costs</div></div>
-          <div class="stat"><div class="name">Net Risk : Reward</div><div id="exOutRR" class="value">—</div><div class="small">Original stop vs TP</div></div>
+          <div class="stat"><div class="name">Net at Active Stop</div><div id="exOutActiveStopCard" class="value">—</div><div class="small">Current stop, after estimated costs</div></div>
+          <div class="stat"><label class="name" for="exManualExit" style="display:block;margin-bottom:7px">Manual Exit Price ($)</label><div class="input"><span class="prefix">$</span><input id="exManualExit" type="number" inputmode="decimal" min="0" step="any" placeholder="Actual exit fill" aria-label="Manual exit fill price"></div><div class="small">Optional · save actual average exit</div></div>
+          <div class="stat"><div class="name">Net at Manual Exit</div><div id="exOutManualNet" class="value">—</div><div class="small">Estimated realized P/L at entered exit</div></div>
           <div class="stat"><div class="name">Risk vs Budget</div><div id="exOutDiff" class="value">—</div><div class="small">Compared with original limit</div></div>
         </div>
         <div id="exRiskMeterWrap" style="display:none;margin-top:14px">
@@ -280,6 +297,7 @@
         <div id="execAlert" class="excaution"></div>
         <h3 class="section">Actual Execution Breakdown</h3>
         <div class="rows">
+          <div class="row"><div class="l">Net Risk : Reward (original stop vs TP)</div><div id="exOutRR" class="a">—</div></div>
           <div class="row"><div class="l">Entry slippage (adverse impact)</div><div id="exOutSlip" class="a">—</div></div>
           <div class="row"><div class="l">Gross P/L at original stop</div><div id="exOutStopGross" class="a">—</div></div>
           <div class="row"><div class="l">Net result at original stop</div><div id="exOutStopNet" class="a">—</div></div>
@@ -301,6 +319,7 @@
           <div class="row"><div class="l">Est. net P/L at current quote</div><div id="exOutMarkNet" class="a">—</div></div>
           <div class="row"><div class="l">Projected equity at active stop <span class="hint">Requires current mark</span></div><div id="exOutEquityAtStop" class="a">—</div></div>
         </div>
+        <div class="notice exec-note">Manual Exit Price is a recorded fill, not a live order. Enter the actual average close price after exiting through your broker. Net at Manual Exit estimates realized P/L using the entered quantity and the current cost inputs; you can enter actual exit fees and funding in Trade Review. No broker orders are placed.</div>
         <div class="notice exec-note">Risk is based on actual filled price and FIXED quantity. Estimates assume linear USD P&amp;L, 0.04% exit commissions and 0.033% funding per selected reset. Actual fills, swap charges, symbol quantity increments and margin limits may differ. Equity-at-stop uses the current quoted price as the mark reflected in your entered equity, and excludes already-applied entry costs and future funding to avoid double counting. Verify against DXTrade.</div>
       </div>
     </div>
@@ -385,6 +404,31 @@
 </div>
 </section>
 
+
+<section id="cloud" class="page">
+ <div class="two">
+  <div class="card"><div class="head"><h2>Cloud Sync: TradeForge Account</h2></div><div class="body">
+   <div id="cloudStatus" class="cloud-status" role="status">Local-only mode. Your devices do not share data until cloud sync is configured.</div>
+   <div class="notice" style="margin:0 0 14px">Cloud Sync uses a private Supabase project with email/password sign-in. You control the database. Your Supabase project URL and public/publishable key are not passwords, but <strong>never enter a service-role or secret key here</strong>.</div>
+   <div class="field"><label for="cloudUrl">Supabase Project URL</label><div class="input"><input id="cloudUrl" type="url" placeholder="https://your-project.supabase.co" autocomplete="url" spellcheck="false"></div></div>
+   <div class="field"><label for="cloudKey">Supabase publishable / anon public key</label><div class="input"><input id="cloudKey" type="text" placeholder="sb_publishable_… or eyJ…" autocomplete="off" spellcheck="false"></div></div>
+   <div class="cloud-buttons"><button id="cloudSetProject" class="primary">Save Cloud Project</button></div>
+   <h3 class="section">Your TradeForge Sign-in</h3>
+   <div class="field"><label for="cloudEmail">Email</label><div class="input"><input id="cloudEmail" type="email" autocomplete="username" placeholder="you@example.com"></div></div>
+   <div class="field"><label for="cloudPassword">Password</label><div class="input"><input id="cloudPassword" type="password" autocomplete="current-password" placeholder="Account password"></div></div>
+   <div class="cloud-buttons"><button class="primary" id="cloudSignIn">Sign In</button><button id="cloudSignUp">Create Account</button><button id="cloudSignOut">Sign Out</button></div>
+  </div></div>
+  <div class="card"><div class="head"><h2>Sync &amp; First-Time Setup</h2></div><div class="body">
+   <p class="exec-subtext">When signed in, TradeForge syncs open positions, Planner inputs, Evaluation Dashboard, and Trade Review between your devices. Changes are saved locally first, then uploaded automatically while online.</p>
+   <div id="cloudAccount" class="cloud-status">Not signed in.</div>
+   <div class="cloud-buttons"><button id="cloudUpload" class="primary">Use This Device as Starting Copy</button><button id="cloudDownload">Load Cloud Data</button><button id="cloudSyncNow">Sync Now</button></div>
+   <div class="notice">First time: on the device holding your current trades, select <strong>Use This Device as Starting Copy</strong>. On the laptop and phone, sign into the same TradeForge account and select <strong>Load Cloud Data</strong> if needed. Once initialized, changes sync automatically. Uploading your starting copy replaces the cloud snapshot, so do that only once.</div>
+   <div class="notice">A sync conflict stops uploads rather than silently overwriting changes from another device. Select Load Cloud Data to resolve it (export a backup first if you need to preserve the local copy). Local changes made while offline can conflict with remote changes when you reconnect.</div>
+   <div class="notice">Setup steps and database security rules are in <strong>CLOUD-SETUP.txt</strong> and <strong>supabase-setup.sql</strong> included with this release. You do not need to edit the TradeForge app code.</div>
+  </div></div>
+ </div>
+</section>
+
 <footer style="margin-top:22px;text-align:center;color:var(--muted);font-size:.78rem;line-height:1.55">
   <div><strong style="color:var(--text)">TradeForge</strong></div>
   <div>© 2026 Matthew Dozier. All Rights Reserved.</div>
@@ -392,6 +436,7 @@
 
 </main>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 (() => {
 const RATE=.0004, FUNDING_RATE=.00033, $=id=>document.getElementById(id);
@@ -436,8 +481,8 @@ function calcPlan(){
  updateDashboard();
 }
 ['instrument','risk','entry','stop','tp','trailStop','fundingDays','usedMargin'].forEach(id=>$(id).addEventListener('input',calcPlan));
-$('saveRisk').onclick=()=>{const r=val('risk');if(r>0){localStorage.setItem('tradeifyDefaultRisk',r.toFixed(2));$('saveMsg').textContent=`Default risk saved at ${money(r)}.`;setTimeout(()=>$('saveMsg').textContent='',2200)}};
-$('clearTrade').onclick=()=>{$('entry').value='';$('stop').value='';$('tp').value='';$('trailStop').value='';$('fundingDays').value='0';$('usedMargin').value='0';clearPlanUI();$('entry').focus()};
+$('saveRisk').onclick=()=>{const r=val('risk');if(r>0){localStorage.setItem('tradeifyDefaultRisk',r.toFixed(2));scheduleCloudSave();$('saveMsg').textContent=`Default risk saved at ${money(r)}.`;setTimeout(()=>$('saveMsg').textContent='',2200)}};
+$('clearTrade').onclick=()=>{scheduleCloudSave();$('entry').value='';$('stop').value='';$('tp').value='';$('trailStop').value='';$('fundingDays').value='0';$('usedMargin').value='0';clearPlanUI();$('entry').focus()};
 $('copyQty').onclick=async()=>{if(!plan.qty)return;try{await navigator.clipboard.writeText(plan.qty.toFixed(2));$('copyQty').textContent='Copied';setTimeout(()=>$('copyQty').textContent='Copy Position Size',1200)}catch{}};
 function calcReview(){
  const d=$('reviewDir').value,e=val('reviewEntry'),x=val('reviewExit'),q=val('reviewQty'),r=val('reviewRisk'),fund=val('reviewFundingCost');
@@ -456,7 +501,7 @@ function calcReview(){
 }
 function fundingGuard(amount){return Math.max(0,amount)}
 ['reviewDir','reviewEntry','reviewExit','reviewQty','reviewRisk','reviewEntryFeeOverride','reviewExitFeeOverride','reviewFundingCost'].forEach(id=>$(id).addEventListener('input',calcReview));
-$('usePlanner').onclick=()=>{if(!plan.qty)return;$('reviewDir').value=plan.dir;$('reviewEntry').value=plan.entry;$('reviewQty').value=plan.qty.toFixed(2);$('reviewRisk').value=plan.total.toFixed(2);$('reviewEntryFeeOverride').value='';$('reviewExitFeeOverride').value='';$('reviewFundingCost').value=plan.funding.toFixed(2);calcReview()};
+$('usePlanner').onclick=()=>{if(!plan.qty)return;$('reviewDir').value=plan.dir;$('reviewEntry').value=plan.entry;$('reviewQty').value=plan.qty.toFixed(2);$('reviewRisk').value=plan.total.toFixed(2);$('reviewEntryFeeOverride').value='';$('reviewExitFeeOverride').value='';$('reviewFundingCost').value=plan.funding.toFixed(2);calcReview();scheduleCloudSave()};
 const evalIds=['startBal','currentBal','currentEquity','profitTarget','maxDrawdown','maxDaily','todayPnL'];evalIds.forEach(id=>$(id).addEventListener('input',()=>{updateDashboard();calcPlan();if(typeof renderExecResults==='function')renderExecResults()}));
 function updateDashboard(){
  const s=val('startBal'),c=val('currentBal'),e=val('currentEquity'),eq=Number.isFinite(e)?e:c,pt=val('profitTarget'),md=val('maxDrawdown'),dl=val('maxDaily'),today=val('todayPnL');
@@ -468,8 +513,8 @@ function updateDashboard(){
  if(plan.tpNet&&Number.isFinite(c)){$('balIfTp').textContent=money(c+plan.tpNet);$('targetAfterTp').textContent=money(Number.isFinite(targetBalance)?Math.max(0,targetBalance-(c+plan.tpNet)):NaN)}else ['balIfTp','targetAfterTp'].forEach(id=>$(id).textContent='—');
  let msgs=[];if(Number.isFinite(ddRem))msgs.push(ddRem<=0?'Overall drawdown limit reached/breached.':`${money(ddRem)} of live-equity cushion remains above the ${money(ddFloor)} static floor.`);if(Number.isFinite(dailyRem))msgs.push(dailyRem<=0?'Daily loss limit reached.':`${money(dailyRem)} remains before the daily loss limit based on entered daily P/L.`);if(Number.isFinite(targetRem))msgs.push(targetRem<=0?'Profit target reached.':`${money(targetRem)} remains to the ${money(targetBalance)} pass balance.`);$('evalStatus').textContent=msgs.length?msgs.join(' '):'Enter your evaluation limits to see account status.';
 }
-$('saveEval').onclick=()=>{const obj={};evalIds.forEach(id=>obj[id]=$(id).value);localStorage.setItem('tradeifyEvalV6',JSON.stringify(obj));$('evalMsg').textContent='Evaluation settings saved on this device.';setTimeout(()=>$('evalMsg').textContent='',2200)};
-$('clearEval').onclick=()=>{evalIds.forEach(id=>$(id).value='');localStorage.removeItem('tradeifyEvalV6');updateDashboard()};
+$('saveEval').onclick=()=>{const obj={};evalIds.forEach(id=>obj[id]=$(id).value);localStorage.setItem('tradeifyEvalV6',JSON.stringify(obj));scheduleCloudSave();$('evalMsg').textContent='Evaluation settings saved locally and queued for cloud sync.';setTimeout(()=>$('evalMsg').textContent='',2200)};
+$('clearEval').onclick=()=>{evalIds.forEach(id=>$(id).value='');localStorage.removeItem('tradeifyEvalV6');updateDashboard();scheduleCloudSave()};
 const savedRisk=localStorage.getItem('tradeifyDefaultRisk');if(savedRisk)$('risk').value=Number(savedRisk).toFixed(2);
 try{const obj=JSON.parse(localStorage.getItem('tradeifyEvalV6')||'{}');evalIds.forEach(id=>{if(obj[id]!==undefined)$(id).value=obj[id]})}catch{}
 $('reviewRisk').value=$('risk').value;updateDashboard();
@@ -479,14 +524,14 @@ const EXEC_KEY='tradeforgeOpenPositionsV7';
 const EX_FIELDS={
  exLabel:'label',exAccount:'account',exInstrument:'instrument',exDir:'dir',exRisk:'risk',
  exPlannedEntry:'plannedEntry',exEntry:'actualEntry',exQty:'qty',exStop:'stop',exTP:'tp',
- exTrail:'trail',exMark:'mark',exFunding:'days',exUsed:'otherMargin',exEntryFeeActual:'entryFeeOverride'
+ exTrail:'trail',exMark:'mark',exManualExit:'manualExit',exFunding:'days',exUsed:'otherMargin',exEntryFeeActual:'entryFeeOverride'
 };
 let openTrades=[],selectedExecId=null;
 function loadExecutions(){
  try{const list=JSON.parse(localStorage.getItem(EXEC_KEY)||'[]');if(Array.isArray(list))openTrades=list.filter(x=>x&&typeof x==='object'&&typeof x.id==='string').slice(0,100).map(x=>({...x}));}catch{}
 }
 function saveExecutions(){
- try{localStorage.setItem(EXEC_KEY,JSON.stringify(openTrades));$('execSavedState').textContent='Saved on this device';}
+ try{localStorage.setItem(EXEC_KEY,JSON.stringify(openTrades));$('execSavedState').textContent='Saved locally'+(cloudReady?' · syncing…':'');scheduleCloudSave();}
  catch{$('execSavedState').textContent='Not saved — browser storage blocked or full';}
 }
 function activeExec(){return openTrades.find(x=>x.id===selectedExecId)||null}
@@ -497,7 +542,7 @@ function makeExecId(){return 'pos-'+Date.now().toString(36)+'-'+Math.random().to
 function getExecDefault(){return{
  id:makeExecId(),createdAt:new Date().toISOString(),label:'',account:'50K Evaluation',
  instrument:$('instrument').value||'PAXG',dir:'LONG',risk:$('risk').value||'800',
- plannedEntry:'',actualEntry:'',qty:'',stop:'',tp:'',trail:'',mark:'',days:'0',otherMargin:'0',entryFeeOverride:'',plannedR:''
+ plannedEntry:'',actualEntry:'',qty:'',stop:'',tp:'',trail:'',mark:'',manualExit:'',days:'0',otherMargin:'0',entryFeeOverride:'',plannedR:'',plannedStopAmount:'',plannedTPAmount:'',plannedStopPrice:'',plannedTPPrice:''
 }}
 function execNew(fromPlanner=false){
  if(fromPlanner&&!(plan.qty>0)){window.alert('First calculate a valid trade in Trade Planner (entry, stop, and risk).');return;}
@@ -506,7 +551,9 @@ function execNew(fromPlanner=false){
    Object.assign(p,{instrument:$('instrument').value,dir:plan.dir,risk:$('risk').value,plannedEntry:String(plan.entry),
     actualEntry:'',qty:plan.qty.toFixed(2),stop:String(plan.stop),tp:Number.isFinite(plan.tp)?String(plan.tp):'',
     trail:Number.isFinite(plan.trailStop)?String(plan.trailStop):'',days:String(plan.days||0),otherMargin:String(Math.max(0,val('usedMargin')||0)),
-    plannedR:Number.isFinite(plan.tpR)?String(plan.tpR):''});
+    plannedR:Number.isFinite(plan.tpR)?String(plan.tpR):'',
+    plannedStopAmount:Number.isFinite(plan.total)?String(plan.total):'',plannedTPAmount:Number.isFinite(plan.tpNet)?String(plan.tpNet):'',
+    plannedStopPrice:String(plan.stop),plannedTPPrice:Number.isFinite(plan.tp)?String(plan.tp):''});
  }
  openTrades.unshift(p);selectedExecId=p.id;saveExecutions();refreshExecList();loadExecEditor();showPage('execution');
  if(fromPlanner)$('exEntry').focus();else $('exQty').focus();
@@ -533,13 +580,13 @@ function loadExecEditor(){
 }
 function clearExecOut(){[
  'exOutQty','exOutRisk','exOutProfit','exOutRR','exOutDiff','exOutSlip','exOutStopGross','exOutStopNet',
- 'exOutActiveStop','exOutStopFee','exOutEntryFee','exOutFunding','exOutTPGross','exOutTPFee','exOutBreakEven',
+ 'exOutActiveStop','exOutActiveStopCard','exOutManualNet','exOutStopFee','exOutEntryFee','exOutFunding','exOutTPGross','exOutTPFee','exOutBreakEven',
  'exOutNotional','exOutLev','exOutMargin','exOutAvailable','exOutSuggestedStop','exOutSuggestedTP',
  'exOutMarkNet','exOutEquityAtStop'].forEach(id=>$(id).textContent='—');
  $('exRiskMeterWrap').style.display='none';$('execAlert').style.display='none';
 }
 function execNumbers(p){
- const e=safeFloat(p.actualEntry),q=safeFloat(p.qty),stop=safeFloat(p.stop),tp=safeFloat(p.tp),trail=safeFloat(p.trail),mark=safeFloat(p.mark);
+ const e=safeFloat(p.actualEntry),q=safeFloat(p.qty),stop=safeFloat(p.stop),tp=safeFloat(p.tp),trail=safeFloat(p.trail),mark=safeFloat(p.mark),manualExit=safeFloat(p.manualExit);
  const risk=safeFloat(p.risk),planned=safeFloat(p.plannedEntry),lev=LEVERAGE[p.instrument]||2;
  const daysRaw=safeFloat(p.days),days=nonNeg(daysRaw)?Math.floor(daysRaw):0,entryFeeRaw=safeFloat(p.entryFeeOverride);
  if(!validPositive(e)||!validPositive(q))return null;
@@ -550,7 +597,7 @@ function execNumbers(p){
   gross:direction*(price-e)*q,exitFee:price*q*RATE,
   net:direction*(price-e)*q-entryFee-price*q*RATE-funding
  }:null;
- const stopResult=resultAt(stop),tpResult=resultAt(tp),activeResult=resultAt(validPositive(trail)?trail:stop),markResult=resultAt(mark);
+ const stopResult=resultAt(stop),tpResult=resultAt(tp),activeResult=resultAt(validPositive(trail)?trail:stop),markResult=resultAt(mark),manualExitResult=resultAt(manualExit);
  const stopRisk=stopResult?Math.max(0,-stopResult.net):NaN;
  const activeRisk=activeResult?Math.max(0,-activeResult.net):NaN;
  const otherMargin=safeFloat(p.otherMargin),margin=notional/lev,eq=equityBasis();
@@ -561,18 +608,26 @@ function execNumbers(p){
  const preserveTarget=Number.isFinite(desired)?direction===1?
  (desired+e*q+entryFee+funding)/(q*(1-RATE)):
  (e*q-entryFee-funding-desired)/(q*(1+RATE)):NaN;
- return {e,q,stop,tp,trail,mark,risk,planned,lev,days,direction,notional,entryFee,funding,stopResult,tpResult,activeResult,markResult,stopRisk,activeRisk,otherMargin,margin,eq,budgetStop,preserveTarget};
+ return {e,q,stop,tp,trail,mark,risk,planned,lev,days,direction,notional,entryFee,funding,stopResult,tpResult,activeResult,markResult,manualExitResult,stopRisk,activeRisk,otherMargin,margin,eq,budgetStop,preserveTarget};
 }
 function renderExecResults(){
  const p=activeExec();if(!p)return;
  $('execResults').style.display='block';$('execEmptyResult').style.display='none';clearExecOut();
+ $('exPlannedStopAmount').textContent=validPositive(safeFloat(p.plannedStopAmount))?money(safeFloat(p.plannedStopAmount)):'Not recorded';
+ $('exPlannedTPAmount').textContent=Number.isFinite(safeFloat(p.plannedTPAmount))?money(safeFloat(p.plannedTPAmount)):'Not recorded';
+ const stopPrice=safeFloat(p.plannedStopPrice),tpPrice=safeFloat(p.plannedTPPrice);
+ $('exPlannedPrices').textContent=(validPositive(stopPrice)?'SL '+num(stopPrice,4):'SL —')+' / '+(validPositive(tpPrice)?'TP '+num(tpPrice,4):'TP —');
  const x=execNumbers(p);if(!x){$('execAlert').textContent='Enter the actual average entry AND filled quantity to calculate true risk. The filled quantity will not change when you edit the entry.';$('execAlert').style.display='block';return;}
  const show=(id,v)=>$(id).textContent=v;
  const cls=(id,v)=>$(id).className='value '+(v>0?'good':v<0?'bad':'');
  show('exOutQty',num(x.q,Math.min(6,Math.max(2,String(x.q).split('.')[1]?.length||0))));
  show('exOutRisk',Number.isFinite(x.stopRisk)?money(x.stopRisk):'Enter stop');
  if(x.stopResult){show('exOutStopGross',money(x.stopResult.gross));show('exOutStopNet',money(x.stopResult.net));}
- if(x.activeResult){show('exOutActiveStop',money(x.activeResult.net)+(validPositive(x.trail)?' (trailed)':' (original)'));}
+ if(x.activeResult){
+  show('exOutActiveStop',money(x.activeResult.net)+(validPositive(x.trail)?' (trailed)':' (original)'));
+  show('exOutActiveStopCard',money(x.activeResult.net));cls('exOutActiveStopCard',x.activeResult.net);
+ }
+ if(x.manualExitResult){show('exOutManualNet',money(x.manualExitResult.net));cls('exOutManualNet',x.manualExitResult.net);}
  const validTP=x.tpResult&&((x.direction===1&&x.tp>x.e)||(x.direction===-1&&x.tp<x.e));
  if(validTP){show('exOutProfit',money(x.tpResult.net));cls('exOutProfit',x.tpResult.net);show('exOutTPGross',money(x.tpResult.gross));show('exOutTPFee',money(x.tpResult.exitFee));
   if(x.stopRisk>0)show('exOutRR',num(x.tpResult.net/x.stopRisk,2)+':1');}
@@ -641,7 +696,7 @@ $('execRestoreFile').addEventListener('change',async()=>{
    if(existing.has(item.id))continue;
    const p={...getExecDefault()};
    for(const key of Object.values(EX_FIELDS))if(typeof item[key]==='string'&&item[key].length<150)p[key]=item[key];
-   if(typeof item.plannedR==='string')p.plannedR=item.plannedR;
+   for(const key of ['plannedR','plannedStopAmount','plannedTPAmount','plannedStopPrice','plannedTPPrice'])if(typeof item[key]==='string')p[key]=item[key];
    p.id=item.id;p.createdAt=typeof item.createdAt==='string'?item.createdAt:p.createdAt;
    imported.push(p);existing.add(p.id);
   }
@@ -662,13 +717,149 @@ $('execToReview').onclick=()=>{
  const p=activeExec();if(!p)return;const x=execNumbers(p);
  if(!x){window.alert('Enter an actual entry price and filled quantity first.');return;}
  $('reviewDir').value=p.dir==='SHORT'?'SHORT':'LONG';$('reviewEntry').value=p.actualEntry;
- $('reviewExit').value='';$('reviewQty').value=p.qty;
+ $('reviewExit').value=validPositive(safeFloat(p.manualExit))?p.manualExit:'';$('reviewQty').value=p.qty;
  $('reviewRisk').value=Number.isFinite(x.stopRisk)&&x.stopRisk>0?x.stopRisk.toFixed(2):(p.risk||'');
  $('reviewEntryFeeOverride').value=nonNeg(safeFloat(p.entryFeeOverride))?p.entryFeeOverride:'';
  $('reviewExitFeeOverride').value='';$('reviewFundingCost').value=x.funding.toFixed(2);
- calcReview();showPage('review');$('reviewExit').focus();
+ calcReview();scheduleCloudSave();showPage('review');$('reviewExit').focus();
 };
 loadExecutions();selectedExecId=openTrades[0]?.id||null;refreshExecList();loadExecEditor();
+
+
+// ---- Optional Cloud Sync (Supabase Auth + RLS-protected snapshot) ----
+// Only a public key is used in the browser. Supabase secret/service_role keys must NEVER be used.
+const CLOUD_PREF='tradeforgeCloudProjectV8'; // Kept unchanged so existing v8 sync settings work in v9
+const SYNC_FIELDS=['instrument','risk','entry','stop','tp','trailStop','fundingDays','usedMargin',
+ ...evalIds,'reviewDir','reviewEntry','reviewExit','reviewQty','reviewRisk','reviewEntryFeeOverride','reviewExitFeeOverride','reviewFundingCost'];
+let cloudClient=null, cloudUser=null, cloudReady=false,cloudVersion=null,cloudWorking=false,cloudDirty=false,cloudConflict=false,cloudSaveTimer=null;
+let cloudPolling=null,cloudApplying=false,cloudHasSnapshot=false,cloudEdits=0;
+function cloudStatus(msg,type=''){
+ const el=$('cloudStatus');el.textContent=msg;el.className='cloud-status '+(type==='ok'?'ok':type==='err'?'err':'');
+ $('syncDot').textContent=type==='ok'?'●':type==='err'?'!':'○';
+ $('cloudAccount').textContent=cloudUser?'Signed in: '+cloudUser.email+' · '+(cloudReady?'Automatic sync enabled':'Choose starting data source'):'Not signed in.';
+}
+function collectCloudSnapshot(){
+ const fields={};for(const id of SYNC_FIELDS)fields[id]=$(id)?.value??'';
+ return {schema:8,fields,openPositions:openTrades.map(p=>({...p})),selectedPositionId:selectedExecId,savedAt:new Date().toISOString()};
+}
+function applyCloudSnapshot(snapshot){
+ if(!snapshot||!snapshot.fields||!Array.isArray(snapshot.openPositions))throw Error('Unexpected cloud snapshot format.');
+ cloudApplying=true;
+ try{
+  for(const id of SYNC_FIELDS)if($(id)&&Object.prototype.hasOwnProperty.call(snapshot.fields,id))$(id).value=String(snapshot.fields[id]??'');
+  const unique=new Set();openTrades=snapshot.openPositions.filter(p=>p&&typeof p.id==='string'&&!unique.has(p.id)&&unique.add(p.id)).slice(0,100).map(p=>({...p}));
+  selectedExecId=openTrades.some(p=>p.id===snapshot.selectedPositionId)?snapshot.selectedPositionId:openTrades[0]?.id||null;
+  if(validPositive(safeFloat($('risk').value)))localStorage.setItem('tradeifyDefaultRisk',$('risk').value);
+  const ev={};evalIds.forEach(id=>ev[id]=$(id).value);localStorage.setItem('tradeifyEvalV6',JSON.stringify(ev));
+  localStorage.setItem(EXEC_KEY,JSON.stringify(openTrades));
+  calcPlan();calcReview();updateDashboard();refreshExecList();loadExecEditor();
+ }finally{cloudApplying=false;}
+}
+function scheduleCloudSave(){
+ if(cloudApplying||!cloudReady||!cloudUser)return;
+ cloudDirty=true;cloudEdits++;
+ clearTimeout(cloudSaveTimer);cloudSaveTimer=setTimeout(()=>cloudPush(),1100);
+}
+async function readCloudRow(){
+ const {data,error}=await cloudClient.from('tradeforge_state').select('version,payload,updated_at').eq('user_id',cloudUser.id).maybeSingle();
+ if(error)throw error;return data;
+}
+async function cloudPush(){
+ if(!cloudReady||!cloudUser||cloudWorking||cloudConflict||!cloudDirty)return;
+ cloudWorking=true;
+ try{
+  const payload=collectCloudSnapshot(),editsAtStart=cloudEdits;
+  if(cloudVersion===null){throw Error('Cloud snapshot has not been initialized.');}
+  const {data,error}=await cloudClient.from('tradeforge_state')
+    .update({payload,version:cloudVersion+1,updated_at:new Date().toISOString()})
+    .eq('user_id',cloudUser.id).eq('version',cloudVersion).select('version');
+  if(error)throw error;
+  if(!data?.length){cloudConflict=true;cloudReady=false;cloudStatus('Sync conflict: another device updated your account. Export a local backup if necessary, then select Load Cloud Data to resolve.','err');return;}
+  cloudVersion=data[0].version;cloudDirty=cloudEdits!==editsAtStart;
+  cloudStatus('Synced · '+new Date().toLocaleTimeString()+' · All devices can load this saved data.','ok');
+ }catch(e){cloudStatus('Cloud upload delayed: '+e.message+' · Local data is still saved.','err');}
+ finally{cloudWorking=false;if(cloudReady&&cloudDirty&&!cloudConflict)setTimeout(()=>cloudPush(),4500);}
+}
+async function cloudPull(force=false){
+ if(!cloudClient||!cloudUser||cloudWorking)return;
+ cloudWorking=true;
+ try{
+  const row=await readCloudRow();
+  if(!row){cloudReady=false;cloudVersion=null;cloudHasSnapshot=false;cloudStatus('No cloud data exists yet. On the device with your trades, click Use This Device as Starting Copy.');return;}
+  cloudHasSnapshot=true;
+  if(!force&&cloudDirty){cloudStatus('Local edits are waiting to upload. Cloud download paused to protect them.','err');return;}
+  if(!force&&cloudVersion!==null&&row.version===cloudVersion)return;
+  if(!force&&cloudVersion===null&&openTrades.length>0&&JSON.stringify(openTrades)!==JSON.stringify(row.payload?.openPositions||[])&&!confirm('This device already has locally saved open trades. Load the cloud copy and replace this device’s local data? You can first export a position backup from Trade Execution.')){cloudStatus('Cloud found, but local positions were left untouched. Use Load Cloud Data when ready.');return;}
+  if(force&&(cloudDirty||cloudConflict)&&!confirm('Replace this device’s local TradeForge data with the current cloud snapshot? Export a backup first if you need to preserve local edits.'))return;
+  applyCloudSnapshot(row.payload);
+  cloudVersion=row.version;cloudConflict=false;cloudDirty=false;cloudReady=true;
+  cloudStatus('Synced from cloud · '+new Date().toLocaleTimeString()+' · '+openTrades.length+' open positions.','ok');
+ }catch(e){cloudStatus('Unable to load cloud data: '+e.message,'err');}
+ finally{cloudWorking=false;}
+}
+async function configureCloud(auto=false){
+ if(typeof window.supabase==='undefined'){cloudStatus('Cloud library not loaded. Connect to the internet and reload TradeForge.','err');return;}
+ const url=$('cloudUrl').value.trim(),key=$('cloudKey').value.trim();
+ if(!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(url)||!key){if(!auto)cloudStatus('Enter the Supabase project URL and public anon/publishable key.','err');return;}
+ try{
+  cloudClient=window.supabase.createClient(url.replace(/\/$/,''),key,{auth:{storageKey:'tf-v8-auth-'+new URL(url).hostname,autoRefreshToken:true,persistSession:true,detectSessionInUrl:false}});
+  localStorage.setItem(CLOUD_PREF,JSON.stringify({url,key}));
+  const {data,error}=await cloudClient.auth.getUser();if(error&&error.name!=='AuthSessionMissingError')throw error;
+  cloudUser=data?.user||null;
+  cloudReady=false;cloudVersion=null;cloudDirty=false;cloudConflict=false;
+  if(cloudUser)await cloudPull();else cloudStatus('Cloud project saved. Sign in or create your TradeForge account.');
+  clearInterval(cloudPolling);cloudPolling=setInterval(()=>{if(cloudUser&&cloudReady&&!cloudDirty&&!cloudWorking)cloudPull()},12000);
+ }catch(e){cloudStatus('Cloud setup failed: '+e.message,'err');}
+}
+async function authCloud(action){
+ if(!cloudClient){cloudStatus('Save your cloud project first.','err');return;}
+ const email=$('cloudEmail').value.trim(),password=$('cloudPassword').value;
+ if(!email||!password){cloudStatus('Enter your email and password.','err');return;}
+ try{
+  const {data,error}=action==='signup'?await cloudClient.auth.signUp({email,password}):await cloudClient.auth.signInWithPassword({email,password});
+  if(error)throw error;
+  cloudUser=data?.user||null;cloudReady=false;cloudVersion=null;cloudDirty=false;cloudConflict=false;
+  $('cloudPassword').value='';
+  if(!data?.session){cloudStatus('Account created. Check your email for the confirmation link, then sign in.');return;}
+  cloudStatus('Signed in. Checking for your cloud data…');await cloudPull();
+ }catch(e){cloudStatus('Sign-in failed: '+e.message,'err');}
+}
+$('cloudSetProject').onclick=()=>configureCloud();
+$('cloudSignIn').onclick=()=>authCloud('signin');
+$('cloudSignUp').onclick=()=>authCloud('signup');
+$('cloudSignOut').onclick=async()=>{
+ if(cloudClient)await cloudClient.auth.signOut();cloudUser=null;cloudReady=false;cloudVersion=null;cloudDirty=false;cloudConflict=false;
+ clearInterval(cloudPolling);cloudStatus('Signed out. Local data remains on this device.');
+};
+$('cloudUpload').onclick=async()=>{
+ if(!cloudUser){cloudStatus('Sign in first.','err');return;}
+ if(cloudWorking)return;
+ if(!confirm('Use the contents of THIS device as the new cloud copy? This replaces any existing cloud data. Only do this on your primary device during first setup, or if you intentionally want to replace the cloud copy.'))return;
+ cloudWorking=true;
+ try{
+  const payload=collectCloudSnapshot();const prior=await readCloudRow();
+  if(prior){
+   const {data,error}=await cloudClient.from('tradeforge_state').update({payload,version:prior.version+1,updated_at:new Date().toISOString()}).eq('user_id',cloudUser.id).eq('version',prior.version).select('version');
+   if(error)throw error;if(!data?.length)throw Error('Cloud data changed during upload. Retry after reviewing latest cloud copy.');
+   cloudVersion=data[0].version;
+  }else{
+   const {data,error}=await cloudClient.from('tradeforge_state').insert({user_id:cloudUser.id,payload,version:1}).select('version').single();
+   if(error)throw error;cloudVersion=data.version;
+  }
+  cloudConflict=false;cloudReady=true;cloudDirty=false;cloudHasSnapshot=true;
+  cloudStatus('Cloud initialized from this device · '+openTrades.length+' positions saved. Sign in on other devices.','ok');
+ }catch(e){cloudStatus('Upload failed: '+e.message,'err');}
+ finally{cloudWorking=false;}
+};
+$('cloudDownload').onclick=()=>cloudPull(true);
+$('cloudSyncNow').onclick=async()=>{
+ if(!cloudReady){await cloudPull();return;}
+ if(cloudDirty)await cloudPush();else await cloudPull();
+};
+for(const id of SYNC_FIELDS){const el=$(id);if(el)el.addEventListener('input',()=>scheduleCloudSave());}
+window.addEventListener('online',()=>{if(cloudReady&&cloudDirty)cloudPush();else if(cloudReady)cloudPull()});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&cloudReady){if(cloudDirty)cloudPush();else cloudPull()}});
+try{const p=JSON.parse(localStorage.getItem(CLOUD_PREF)||'null');if(p?.url&&p?.key){$('cloudUrl').value=p.url;$('cloudKey').value=p.key;configureCloud(true);}}catch{}
 
 let deferredPrompt;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;$('installBtn').style.display='inline-block'});$('installBtn').onclick=async()=>{if(!deferredPrompt)return;deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;$('installBtn').style.display='none'};if('serviceWorker' in navigator&&location.protocol!=='file:')window.addEventListener('load',()=>navigator.serviceWorker.register('./service-worker.js'));
 })();

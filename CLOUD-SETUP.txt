@@ -1,0 +1,46 @@
+TRADEFORGE v8: SETUP AND DEPLOYMENT
+==================================
+
+WHAT'S NEW
+1. Trade Execution displays the original Planner's Total Stop Loss ($) and Net Take Profit ($), plus the original stop / target prices. Values remain unchanged as actual fills are edited. Existing v7 positions without these snapshots display "Not recorded"; send new Planner trades for complete values.
+2. Optional Cloud Sync for Trade Planner inputs, all open positions, Trade Review inputs and Evaluation Dashboard values across your desktop, laptop and phone. Local storage remains active for offline use.
+
+A. UPDATE YOUR EXISTING GITHUB PAGES APP
+1. Unzip TradeForge-v8-GitHub-Upload.zip.
+2. Open https://github.com/Mattieoo123/TradeForge
+3. Select Add file > Upload files.
+4. Upload ONLY index.html and service-worker.js from this ZIP to the REPOSITORY ROOT, replacing those two existing files (do not delete manifest.webmanifest or icon.svg).
+5. Commit to the main branch. Once GitHub Pages has deployed, open https://mattieoo123.github.io/TradeForge/ and refresh.
+
+B. ONE-TIME CLOUD SETUP (NEEDED FOR AUTOMATIC CROSS-DEVICE SYNC)
+1. Go to https://supabase.com/dashboard and create a free Supabase account and new project. Save your database password securely.
+2. Open your Supabase project > SQL Editor > New query.
+3. Copy and paste the contents of supabase-setup.sql, then click Run. This creates a private table with row-level security. Each signed-in user can access only their own data.
+4. In Supabase > Authentication > Providers > Email, ensure Email authentication is enabled. If email confirmation is enabled, follow the verification email after creating your TradeForge login.
+5. In Supabase > Project Settings > API Keys, copy your public/publishable or anon key. NEVER use a secret/service_role key in TradeForge.
+6. Copy the project URL (usually https://<projectref>.supabase.co) from Project Settings.
+7. Open TradeForge > Cloud Sync on the DESKTOP that has your current open positions. Paste the project URL and the PUBLIC key, click Save Cloud Project.
+8. Enter an email + a NEW password for your TradeForge sign-in. Select Create Account. Verify email if requested, then Sign In.
+9. Click 'Use This Device as Starting Copy' ON THIS DESKTOP ONLY. This uploads your existing trades and Planner/Dashboard/Review inputs. You should get a green confirmation that it was saved.
+10. Open TradeForge on your laptop and phone. Under Cloud Sync enter the SAME Supabase project URL and public key, save the project, and sign in with the SAME TradeForge email/password. The existing cloud snapshot will load automatically. If it doesn't, tap 'Load Cloud Data'.
+11. Afterwards the app automatically saves changes locally and uploads them while online, and checks for updates from other devices every ~12 seconds and on returning to the app.
+
+SECURITY AND LIMITATIONS
+- You own your Supabase database. It is NOT a broker connection and will never place trades, read live quotes or change orders on DXTrade/Kraken.
+- App uses HTTPS and per-user Supabase authentication with Postgres Row Level Security.
+- Your URL and public/anon key are safe for client apps; NEVER put your Supabase database password or service_role/secret key into the app.
+- Trade data, account notes, risk settings and dashboard values are stored on Supabase servers and visible to someone who obtains your TradeForge login. Use a strong unique password.
+- The app's password is NOT stored in your TradeForge configuration. Supabase's login session is stored in browser storage.
+- This is snapshot-level sync with optimistic version checking, not collaborative document editing. If two devices modify data simultaneously, the app detects a version conflict and pauses uploads instead of silently overwriting. Export your position backup before choosing to load cloud data if you must preserve a local version.
+- Offline updates remain local; when back online, a conflict is possible if another device edited the cloud copy. Do not edit on multiple offline devices at once.
+- A device with existing data may require confirming before its local copy is replaced during initial sign-in.
+- Browser/local storage and installed PWAs are device-specific and cannot sync without cloud connectivity. The app's local-only mode continues to work without setup.
+- The external Supabase JavaScript library requires an internet connection initially; local TradeForge planning continues to work if it fails to load.
+- Once you configure Cloud Sync for each installed device, it remembers that project and your session until you sign out.
+- A free Supabase project may pause after inactivity. The Supabase dashboard can reactivate it.
+
+IF ANYTHING GOES WRONG
+- Confirm project URL, public key, confirmed email, and SQL table/policies.
+- Check Cloud Sync status at the top of that tab. A red status means data is still saved locally but may not be cloud-synced.
+- 'Load Cloud Data' replaces this device's local copy. 'Use This Device as Starting Copy' replaces the current cloud copy. Use intentionally.
+- Trade Execution > Export Backup saves the open positions as JSON for an additional manual backup.
